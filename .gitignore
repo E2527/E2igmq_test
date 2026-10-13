@@ -1,0 +1,11 @@
+# ROS 2 ビルド生成物
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+# ファームウェアのビルド生成物
+firmware/**/Debug/
+firmware/**/Release/
+firmware/**/build/
+# 認証情報
+.env
+robocon-ros2-*.tar

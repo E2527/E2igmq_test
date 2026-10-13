@@ -1,0 +1,45 @@
+# 使い方は README.md を参照
+services:
+  # 開発用コンテナ。ros2_ws をマウントしてコンテナ内で colcon build する
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+    image: robocon/ros2:jazzy-dev
+    container_name: ros_dev
+    network_mode: host      # ROS 2 の DDS 通信をホストと共有
+    ipc: host
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./ros2_ws:/root/ros2_ws
+      - ./config:/root/config:ro
+
+  # ビルドだけ実行して終了する(CI や確認用)
+  build:
+    extends: dev
+    container_name: ros_build
+    command: >
+      bash -c "colcon build --symlink-install && colcon test && colcon test-result --verbose"
+
+  # 実機(Pi)用: ビルド済みイメージ
+  runtime:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: robocon/ros2:jazzy
+    network_mode: host
+    ipc: host
+    profiles: ["robot"]
+
+  # STM32 と USB シリアルでつなぐ micro-ROS agent(Pi 側で起動)
+  micro-ros-agent:
+    image: microros/micro-ros-agent:jazzy
+    network_mode: host
+    restart: unless-stopped
+    devices:
+      - ${STM32_DEVICE:-/dev/ttyACM0}:/dev/stm32
+    command: serial --dev /dev/stm32 -b 115200
+    profiles: ["robot"]
