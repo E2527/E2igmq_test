@@ -61,4 +61,4 @@ QEMU 経由のビルドはネイティブより数倍遅くなります。開発
 
 ### CI
 
-`.github/workflows/docker-ros2.yml` で、プッシュと PR のたびに amd64 の開発用イメージをビルドして `colcon build` / `colcon test` を実行します。main へのマージ時には、arm64 ランナーで Pi 用の `runtime` イメージがビルドできるかも確認します。
+`.github/workflows/docker-ros2.yml` で、プッシュと PR のたびに amd64 の開発用イメージをビルドして `colcon build` / `colcon test` を実行します。あわせて arm64 ランナーで Pi 用の `runtime` イメージがビルドできるかも確認します。
