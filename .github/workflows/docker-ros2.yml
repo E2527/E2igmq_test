@@ -1,0 +1,26 @@
+name: ROS 2 Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # 開発用イメージをビルドし、コンテナ内で colcon build / test を実行する
+  amd64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dev image
+        run: docker compose build dev
+      - name: colcon build & test
+        run: docker compose run --rm build
+
+  # Pi 向け(arm64)にビルド済みイメージが作れるか確認する
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image (arm64)
+        run: docker compose build runtime
