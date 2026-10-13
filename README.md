@@ -58,3 +58,7 @@ QEMU 経由のビルドはネイティブより数倍遅くなります。開発
 ### micro-ROS agent
 
 `micro-ros-agent` サービスは `microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
+
+### CI
+
+`.github/workflows/docker-ros2.yml` で、プッシュと PR のたびに amd64 の開発用イメージをビルドして `colcon build` / `colcon test` を実行します。main へのマージ時には、arm64 ランナーで Pi 用の `runtime` イメージがビルドできるかも確認します。
