@@ -9,3 +9,6 @@ firmware/**/build/
 # 認証情報
 .env
 robocon-ros2-*.tar
+# Python
+__pycache__/
+*.pyc
