@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'my_node = my_pkg.my_node:main'
+            'my_node = my_pkg.my_node:main',
+            'my_sub = my_pkg.my_sub:main',
         ],
     },
 )
