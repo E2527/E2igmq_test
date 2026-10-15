@@ -15,6 +15,13 @@ services:
     volumes:
       - ./ros2_ws:/root/ros2_ws
       - ./config:/root/config:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix   # WSLg(rviz2 などの GUI 表示)
+      - /mnt/wslg:/mnt/wslg
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
+      - XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+      - PULSE_SERVER=/mnt/wslg/PulseServer
 
   # ビルドだけ実行して終了する(CI や確認用)
   build:
@@ -23,7 +30,7 @@ services:
     command: >
       bash -c "colcon build --symlink-install && colcon test && colcon test-result --verbose"
 
-  # 実機(Pi)用: ビルド済みイメージ
+  # 実機(Pi)用: ビルド済みイメージ(GUI なしの軽量版)
   runtime:
     build:
       context: .

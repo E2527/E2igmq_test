@@ -1,11 +1,15 @@
 # ROS 2 Jazzy 開発・実行環境
 # ros:jazzy は amd64 / arm64 のマルチアーキテクチャイメージなので、
 # WSL(x86_64)では amd64、Raspberry Pi(arm64)では arm64 が自動で選ばれる。
+#
+#   base    … ビルドに必要なツールだけ(GUI なし)。dev と runtime の共通の土台
+#   dev     … base + rviz2 などの GUI ツール。PC(WSL)での開発用
+#   runtime … base + ワークスペースをビルド済みで焼き込んだもの。Pi へ配布する軽量版
 ARG ROS_DISTRO=jazzy
 ARG BASE_IMAGE=ros:${ROS_DISTRO}
 
-# ---- dev: 開発用(ソースはボリュームでマウントする) ----
-FROM ${BASE_IMAGE} AS dev
+# ---- base: 共通の土台(GUI なし) ----
+FROM ${BASE_IMAGE} AS base
 ARG ROS_DISTRO
 ENV ROS_DISTRO=${ROS_DISTRO} \
     DEBIAN_FRONTEND=noninteractive \
@@ -19,13 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         bash-completion \
     && rm -rf /var/lib/apt/lists/*
 
-# rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
 WORKDIR ${WS}
-COPY ros2_ws/src ${WS}/src
-RUN apt-get update \
-    && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
-    && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
@@ -35,7 +33,29 @@ RUN chmod +x /entrypoint.sh \
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
 
+# ---- dev: 開発用(ソースはボリュームでマウントする) ----
+FROM base AS dev
+# GUI・デモ用。ソースより先に入れて、src を変えても再インストールされないようにする
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-rviz2 \
+        ros-${ROS_DISTRO}-demo-nodes-cpp \
+        ros-${ROS_DISTRO}-demo-nodes-py \
+    && rm -rf /var/lib/apt/lists/*
+
+# rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
+COPY ros2_ws/src ${WS}/src
+RUN apt-get update \
+    && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
+    && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---- runtime: ROS パッケージをビルド済みで焼き込んだイメージ(Pi へ配布する用) ----
-FROM dev AS runtime
+# dev ではなく base から作るので、rviz2 などの GUI は入らない
+FROM base AS runtime
+COPY ros2_ws/src ${WS}/src
+RUN apt-get update \
+    && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
+    && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
+    && rm -rf /var/lib/apt/lists/*
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release

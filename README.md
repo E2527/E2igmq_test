@@ -7,7 +7,7 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 
 | ファイル | 内容 |
 |---|---|
-| `docker/Dockerfile` | `dev`(開発用)と `runtime`(ビルド済み・Pi 配布用)の2ステージ |
+| `docker/Dockerfile` | `base`(共通の土台)/ `dev`(開発用・rviz2 入り)/ `runtime`(ビルド済み・GUI なしの Pi 配布用)の3ステージ |
 | `docker/entrypoint.sh` | ROS とワークスペースの `setup.bash` を自動で読み込む |
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
@@ -31,8 +31,11 @@ source install/setup.bash
 - ビルドとテストだけ実行して終了したいときは `docker compose run --rm build`。
 - 止めるときは `docker compose stop dev`、再開は `docker compose start dev`。
 - `network_mode: host` なので、同じネットワークの他マシン(Pi など)と ROS 2 トピックをやり取りできます。
+- `dev` には rviz2 が入っていて、WSLg 経由で Windows に表示できます(コンテナ内で `rviz2`)。
 
 ### Raspberry Pi(arm64)で使う
+
+Pi では `runtime` イメージを使います。`dev` ではなく `base` から作るので、rviz2 などの GUI は入らず軽量です。`ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
 
 **方法1: Pi 上で直接ビルド**(いちばん簡単。Pi 側で自動的に arm64 になります)
 
