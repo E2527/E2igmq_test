@@ -1,0 +1,65 @@
+# Raspberry Pi(Pi 5 / Pi 400 などの arm64)用の実行イメージ
+#
+#   builder … ros:jazzy(ros-base)で ros2_ws をビルドする。コンパイラなどはここだけに入る
+#   runtime … ros:jazzy-ros-core にビルド結果と実行時の依存だけを載せた軽量版。Pi にはこれを送る
+#
+# Pi 5 と Pi 400 はどちらも arm64 なので、TARGET_CPU を指定しなければ同じイメージが両方で動く。
+# TARGET_CPU=cortex-a76(Pi 5)/ cortex-a72(Pi 400)を指定すると C++ をその CPU 向けに最適化するが、
+# Pi 5 向けにビルドしたイメージは Pi 400 では動かない(docker-bake.hcl の runtime-pi5 / runtime-pi400)。
+ARG ROS_DISTRO=jazzy
+
+# ---- builder: ワークスペースをビルドする ----
+FROM ros:${ROS_DISTRO} AS builder
+ARG ROS_DISTRO
+ARG TARGET_CPU=""
+ENV DEBIAN_FRONTEND=noninteractive \
+    WS=/opt/ros2_ws
+# パイプの途中(rosdep)が失敗したらビルドを止める
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR ${WS}
+COPY ros2_ws/src ${WS}/src
+
+# 実行時に必要な apt パッケージ(exec_depend)を一覧にしておき、runtime で入れる。
+# ROS の環境を source していない状態で実行するので、rclcpp なども一覧に含まれる
+RUN apt-get update \
+    && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
+    && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} \
+        --dependency-types exec --simulate --reinstall -y \
+        | sed -n 's/.*apt-get install -y //p' | sort -u > /tmp/exec-deps.txt \
+    && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pi では src を持たないので --symlink-install は使わない
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && CPU_FLAGS="" \
+    && if [ -n "${TARGET_CPU}" ]; then CPU_FLAGS="-mcpu=${TARGET_CPU}"; fi \
+    && colcon build --merge-install --install-base ${WS}/install \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_C_FLAGS=${CPU_FLAGS}" "-DCMAKE_CXX_FLAGS=${CPU_FLAGS}"
+
+# ---- runtime: Pi に送る実行用イメージ ----
+FROM ros:${ROS_DISTRO}-ros-core AS runtime
+ARG ROS_DISTRO
+ENV DEBIAN_FRONTEND=noninteractive \
+    WS=/opt/ros2_ws
+
+COPY --from=builder /tmp/exec-deps.txt /tmp/exec-deps.txt
+RUN apt-get update \
+    && if [ -s /tmp/exec-deps.txt ]; then \
+         xargs apt-get install -y --no-install-recommends < /tmp/exec-deps.txt; \
+       fi \
+    && rm -rf /var/lib/apt/lists/* /tmp/exec-deps.txt
+
+COPY --from=builder ${WS}/install ${WS}/install
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# root ではなく ubuntu(UID 1000、dialout グループ所属)で動かす。
+# Pi の最初のユーザーも UID 1000 なので、マウントしたファイルの持ち主がずれず、
+# USB シリアル(/dev/ttyACM* など、dialout グループ)にもアクセスできる
+USER ubuntu
+WORKDIR /home/ubuntu
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

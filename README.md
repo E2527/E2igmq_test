@@ -7,7 +7,8 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 
 | ファイル | 内容 |
 |---|---|
-| `docker/Dockerfile` | `base`(共通の土台)/ `dev`(開発用・rviz2 入り)/ `runtime`(ビルド済み・GUI なしの Pi 配布用)の3ステージ |
+| `docker/Dockerfile` | PC(WSL)用。`base`(土台)/ `dev`(開発用・rviz2 入り)の2ステージ |
+| `docker/Dockerfile.pi` | Raspberry Pi(Pi 5 / Pi 400)用。`builder`(ビルド)/ `runtime`(ビルド結果だけを載せた軽量版)の2ステージ |
 | `docker/entrypoint.sh` | ROS とワークスペースの `setup.bash` を自動で読み込む |
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
@@ -35,7 +36,11 @@ source install/setup.bash
 
 ### Raspberry Pi(arm64)で使う
 
-Pi では `runtime` イメージを使います。`dev` ではなく `base` から作るので、rviz2 などの GUI は入らず軽量です。`ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
+Pi では `docker/Dockerfile.pi` の `runtime` イメージを使います(Pi 5 / Pi 400 共通)。
+
+- `ros:jazzy-ros-core` に、`ros2_ws` のビルド結果と実行時の依存(`exec_depend`)だけを載せた軽量版です。rviz2 などの GUI やコンパイラは入りません。
+- root ではなく `ubuntu` ユーザー(UID 1000、`dialout` グループ所属)で動きます。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
+- `ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
 
 **方法1: Pi 上で直接ビルド**(いちばん簡単。Pi 側で自動的に arm64 になります)
 
@@ -51,10 +56,12 @@ docker compose --profile robot run --rm runtime ros2 topic list
 # 初回のみ: arm64 エミュレーション(QEMU)を有効化
 docker run --privileged --rm tonistiigi/binfmt --install arm64
 
-docker buildx bake -f docker-bake.hcl runtime-arm64     # robocon-ros2-arm64.tar ができる
+docker buildx bake -f docker-bake.hcl runtime-arm64     # robocon-ros2-arm64.tar ができる(Pi 5 / Pi 400 共通)
 scp robocon-ros2-arm64.tar pi@<PiのIP>:~
 ssh pi@<PiのIP> docker load -i robocon-ros2-arm64.tar
 ```
+
+C++ を CPU に合わせて最適化したい場合は、`runtime-pi5`(Cortex-A76)または `runtime-pi400`(Cortex-A72)を使います。それぞれ `robocon-ros2-pi5.tar` / `robocon-ros2-pi400.tar` ができ、タグは `robocon/ros2:jazzy-pi5` / `robocon/ros2:jazzy-pi400` です。**Pi 5 向けのイメージは Pi 400 では動きません**(Pi 400 向けは Pi 5 でも動きます)。迷ったら `runtime-arm64` を使ってください。
 
 QEMU 経由のビルドはネイティブより数倍遅くなります。開発用イメージを両アーキテクチャ分まとめて作る場合は `docker buildx bake -f docker-bake.hcl dev`(複数プラットフォームの出力にはレジストリへの push か containerd image store が必要です)。
 

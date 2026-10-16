@@ -30,11 +30,11 @@ services:
     command: >
       bash -c "colcon build --symlink-install && colcon test && colcon test-result --verbose"
 
-  # 実機(Pi)用: ビルド済みイメージ(GUI なしの軽量版)
+  # 実機(Pi 5 / Pi 400)用: ビルド済みの軽量イメージ(GUI・コンパイラなし、ubuntu ユーザーで動く)
   runtime:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.pi
       target: runtime
     image: robocon/ros2:jazzy
     network_mode: host

@@ -2,13 +2,14 @@
 # ros:jazzy は amd64 / arm64 のマルチアーキテクチャイメージなので、
 # WSL(x86_64)では amd64、Raspberry Pi(arm64)では arm64 が自動で選ばれる。
 #
-#   base    … ビルドに必要なツールだけ(GUI なし)。dev と runtime の共通の土台
-#   dev     … base + rviz2 などの GUI ツール。PC(WSL)での開発用
-#   runtime … base + ワークスペースをビルド済みで焼き込んだもの。Pi へ配布する軽量版
+#   base … ビルドに必要なツールだけ(GUI なし)
+#   dev  … base + rviz2 などの GUI ツール。PC(WSL)での開発用
+#
+# Raspberry Pi に送る実行用イメージは docker/Dockerfile.pi で作る。
 ARG ROS_DISTRO=jazzy
 ARG BASE_IMAGE=ros:${ROS_DISTRO}
 
-# ---- base: 共通の土台(GUI なし) ----
+# ---- base: 土台(GUI なし) ----
 FROM ${BASE_IMAGE} AS base
 ARG ROS_DISTRO
 ENV ROS_DISTRO=${ROS_DISTRO} \
@@ -48,14 +49,3 @@ RUN apt-get update \
     && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
     && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
     && rm -rf /var/lib/apt/lists/*
-
-# ---- runtime: ROS パッケージをビルド済みで焼き込んだイメージ(Pi へ配布する用) ----
-# dev ではなく base から作るので、rviz2 などの GUI は入らない
-FROM base AS runtime
-COPY ros2_ws/src ${WS}/src
-RUN apt-get update \
-    && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
-    && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
-    && rm -rf /var/lib/apt/lists/*
-RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
-    && colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
