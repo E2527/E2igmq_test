@@ -1,0 +1,9 @@
+# stm_bridge の設定。ロボットに合わせて書き換える
+stm_bridge:
+  ros__parameters:
+    port: /dev/stm_bus          # コンテナでは --device で USB-RS485 をこの名前で渡す
+    baudrate: 1000000           # STM32 側の UART と同じにする。アダプタが対応しない場合は 115200 など
+    device_ids: [1]             # バスにつながっている STM32 の ID
+    rate_hz: 100.0              # 全 ID への問い合わせを 1 秒に何回するか
+    reply_timeout_ms: 2.0       # 返信が来るまで待つ余裕(フレームの送信時間とは別)
+    command_timeout_s: 0.5      # 指令がこれ以上来なければ空の指令(= 停止)を送る
