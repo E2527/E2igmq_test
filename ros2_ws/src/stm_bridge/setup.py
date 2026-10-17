@@ -19,7 +19,7 @@ setup(
     zip_safe=True,
     maintainer='root',
     maintainer_email='e2527@matsue-ct.ac.jp',
-    description='シリアルバス上の STM32 と ROS 2 トピックを中継するブリッジ',
+    description='CAN バス上の STM32 と ROS 2 トピックを中継するブリッジ',
     license='TODO: License declaration',
     extras_require={
         'test': [

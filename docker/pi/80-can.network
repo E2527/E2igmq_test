@@ -1,0 +1,11 @@
+# Pi の CAN(can0 など)を起動時・USB を挿したときに自動で up にする(systemd-networkd 用)
+#   sudo cp docker/pi/80-can.network /etc/systemd/network/
+#   sudo systemctl restart systemd-networkd
+# BitRate は STM32 側の CAN の設定と同じにする
+[Match]
+Name=can*
+
+[CAN]
+BitRate=1M
+# バスオフ(エラーが続いて通信を止めた状態)から 100 ms で自動復帰する
+RestartSec=100ms

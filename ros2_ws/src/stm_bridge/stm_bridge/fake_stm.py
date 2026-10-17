@@ -1,60 +1,61 @@
 """
-実機の代わりにバス上の STM32 のふりをするシミュレーター(動作確認用).
+実機の代わりに CAN バス上の STM32 のふりをするシミュレーター(動作確認用).
 
-疑似端末(pty)を作って --link のパスに置く。ブリッジの port をそのパスにすると、
-実機がなくても Pi 側の通信を試せる。
+firmware/stm32_can の STM32 と同じ動きをする:
+  - 0x100 + ID の指令を受け取る
+  - period_ms ごとに 0x200 + ID で状態を送る
+  - 指令が watchdog_ms 以上届かない、または空の指令なら「止まる」
 
-    ros2 run stm_bridge fake_stm --ids 1 2
-    ros2 run stm_bridge bridge --ros-args -p port:=/tmp/stm_bus -p "device_ids:=[1, 2]"
+状態は、動いているときは受け取った指令値をそのまま、止まっているときは [0.0, 0.0] を返す。
 
-返す状態は [受信回数, 受け取った指令値...]。空の指令(= 止まる)のときは [受信回数] だけを返す。
+    ros2 run stm_bridge fake_stm --ids 1 2                        # カーネルに CAN がない PC 向け
+    ros2 run stm_bridge bridge --ros-args -p can_interface:=sim -p "device_ids:=[1, 2]"
+
+    ros2 run stm_bridge fake_stm --ids 1 --interface vcan0        # Pi で仮想 CAN(vcan)を使う場合
 """
 
 import argparse
-import os
-import select
-import tty
+import time
 
-from stm_bridge import protocol
+from stm_bridge import can_bus, protocol
 
 
 def main():
-    parser = argparse.ArgumentParser(description='バス上の STM32 のふりをする')
-    parser.add_argument('--ids', type=int, nargs='+', default=[1], help='応答する ID')
-    parser.add_argument('--link', default='/tmp/stm_bus', help='疑似端末へのリンクを置くパス')
+    parser = argparse.ArgumentParser(description='CAN バス上の STM32 のふりをする')
+    parser.add_argument('--ids', type=int, nargs='+', default=[1], help='基板の ID')
+    parser.add_argument('--interface', default='sim', help='sim、または vcan0 / can0 など')
+    parser.add_argument('--period-ms', type=float, default=10.0, help='状態を送る周期')
+    parser.add_argument('--watchdog-ms', type=float, default=100.0, help='指令が途切れたら止まる時間')
     args = parser.parse_args()
 
-    master_fd, slave_fd = os.openpty()
-    tty.setraw(slave_fd)
-    if os.path.lexists(args.link):
-        os.remove(args.link)
-    os.symlink(os.ttyname(slave_fd), args.link)
-    print(f'{args.link} で ID {args.ids} の STM32 として待っています(Ctrl+C で終了)', flush=True)
+    bus = can_bus.open_bus(args.interface, protocol.COMMAND_FILTER, role='device')
+    print(f'{args.interface} で ID {args.ids} の STM32 として動いています(Ctrl+C で終了)', flush=True)
 
-    frame_parser = protocol.FrameParser()
-    counts = {i: 0 for i in args.ids}
+    commands = {i: (0.0, []) for i in args.ids}   # ID -> (受け取った時刻, 指令値)
+    period = args.period_ms / 1000.0
+    next_send = time.monotonic()
     try:
         while True:
-            ready, _, _ = select.select([master_fd], [], [], 1.0)
-            if not ready:
+            frame = bus.recv(max(0.0, next_send - time.monotonic()))
+            if frame is not None:
+                dev_id = protocol.device_of(frame[0], protocol.COMMAND_BASE)
+                if dev_id in commands:
+                    commands[dev_id] = (time.monotonic(), protocol.unpack_floats(frame[1]))
+            now = time.monotonic()
+            if now < next_send:
                 continue
-            for frame in frame_parser.feed(os.read(master_fd, 256)):
-                if frame.dev_id not in counts or frame.cmd & protocol.REPLY_FLAG:
-                    continue
-                counts[frame.dev_id] += 1
-                if frame.cmd == protocol.CMD_DATA:
-                    state = [float(counts[frame.dev_id])] + protocol.unpack_floats(frame.payload)
-                    reply = protocol.pack_floats(state)
-                else:
-                    reply = b''
-                os.write(master_fd, protocol.encode(
-                    frame.dev_id, frame.cmd | protocol.REPLY_FLAG, reply))
+            next_send += period
+            for dev_id, (received, values) in commands.items():
+                running = values and now - received < args.watchdog_ms / 1000.0
+                state = values if running else [0.0, 0.0]
+                try:
+                    bus.send(protocol.state_id(dev_id), protocol.pack_floats(state))
+                except OSError:
+                    pass   # ブリッジがまだ起動していない(sim)など
     except KeyboardInterrupt:
         pass
     finally:
-        os.remove(args.link)
-        os.close(master_fd)
-        os.close(slave_fd)
+        bus.close()
 
 
 if __name__ == '__main__':

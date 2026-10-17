@@ -3,13 +3,12 @@
 <package format="3">
   <name>stm_bridge</name>
   <version>0.0.0</version>
-  <description>RS-485 などのシリアルバスでつないだ複数の STM32 と ROS 2 トピックを中継するブリッジ</description>
+  <description>CAN バスでつないだ複数の STM32 と ROS 2 トピックを中継するブリッジ</description>
   <maintainer email="e2527@matsue-ct.ac.jp">root</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
-  <exec_depend>python3-serial</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_flake8</test_depend>

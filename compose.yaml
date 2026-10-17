@@ -41,15 +41,14 @@ services:
     ipc: host
     profiles: ["robot"]
 
-  # シリアルバス(RS-485 など)の STM32 と ROS 2 トピックを中継する(Pi 側で起動)
+  # CAN バスの STM32 と ROS 2 トピックを中継する(Pi 側で起動)
+  # can0 は Pi 側で up にしておく(docker/pi/80-can.network)。network_mode: host なのでそのまま見える
   # 設定は ros2_ws/src/stm_bridge/config/bridge.yaml(変えたらイメージを作り直す)
   stm-bridge:
     image: robocon/ros2:jazzy
     network_mode: host
     ipc: host
     restart: unless-stopped
-    devices:
-      - ${STM_BUS_DEVICE:-/dev/ttyUSB0}:/dev/stm_bus
     command: ros2 launch stm_bridge bridge.launch.py
     profiles: ["robot"]
 

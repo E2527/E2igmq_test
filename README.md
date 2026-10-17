@@ -13,7 +13,8 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
 | `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
-| `firmware/stm32_bus/` | STM32 側のシリアルバス通信のコード(`stm_bridge` と対になる) |
+| `firmware/stm32_can/` | STM32 側の CAN 通信のコード(`stm_bridge` と対になる) |
+| `docker/pi/80-can.network` | Pi の `can0` を自動で起動する設定 |
 
 ### 開発(WSL)
 
@@ -66,38 +67,45 @@ C++ を CPU に合わせて最適化したい場合は、`runtime-pi5`(Cortex-A7
 
 QEMU 経由のビルドはネイティブより数倍遅くなります。開発用イメージを両アーキテクチャ分まとめて作る場合は `docker buildx bake -f docker-bake.hcl dev`(複数プラットフォームの出力にはレジストリへの push か containerd image store が必要です)。
 
-### STM32 との通信(stm_bridge)
+### STM32 との通信(stm_bridge、CAN)
 
-RS-485 などの1本のバスにつないだ複数の STM32 と、ROS 2 のトピックを中継します。Pi が親機になり、`device_ids` の STM32 に `rate_hz` の周期で順番に問い合わせます。STM32 側のコードは `firmware/stm32_bus/` にあります。
+CAN バスにつないだ複数の STM32 と、ROS 2 のトピックを中継します。STM32 側のコードは `firmware/stm32_can/` にあります。
 
 | トピック | 型 | 内容 |
 |---|---|---|
-| `stm<ID>/command` | `std_msgs/Float32MultiArray` | STM32 に送る指令値(最大 16 個)。最新の値を毎周期送る |
-| `stm<ID>/state` | `std_msgs/Float32MultiArray` | STM32 から返ってきた状態 |
+| `stm<ID>/command` | `std_msgs/Float32MultiArray` | STM32 に送る指令値(float 2 個まで)。最新の値を `rate_hz` の周期で送り続ける |
+| `stm<ID>/state` | `std_msgs/Float32MultiArray` | STM32 から届いた状態(float 2 個まで) |
 
-- `command` が `command_timeout_s`(既定 0.5 秒)以上届かないと、空の指令(= 止まる)を送ります。
-- 設定は `ros2_ws/src/stm_bridge/config/bridge.yaml` です(ポート、通信速度、ID、周期など)。
-- 5 秒ごとに、ID ごとの成功数とタイムアウト数をログに出します。
+- CAN の ID は、指令が `0x100 + ID`、状態が `0x200 + ID` です(標準 11 ビット)。
+- `command` が `command_timeout_s`(既定 0.5 秒)以上届かないと、空の指令(= 止まる)を送ります。STM32 側も、指令が 100 ms 届かなければ止まります。
+- 設定は `ros2_ws/src/stm_bridge/config/bridge.yaml` です。5 秒ごとに ID ごとの受信数をログに出し、状態が届かない ID があれば警告します。
 
-**実機なしで試す**(PC の `dev` コンテナ内。偽の STM32 を ID 1 と 2 で動かす)
+**実機なしで試す**(PC の `dev` コンテナ内。`sim` は UDP で CAN を真似るので、カーネルに CAN がない WSL でも動きます)
 
 ```bash
 ros2 run stm_bridge fake_stm --ids 1 2 &
-ros2 run stm_bridge bridge --ros-args -p port:=/tmp/stm_bus -p "device_ids:=[1, 2]"
+ros2 run stm_bridge bridge --ros-args -p can_interface:=sim -p "device_ids:=[1, 2]"
 # 別のターミナルで
 ros2 topic pub stm1/command std_msgs/msg/Float32MultiArray "{data: [0.5, -1.0]}"
-ros2 topic echo stm1/state        # [受信回数, 0.5, -1.0] が返ってくる
+ros2 topic echo stm1/state        # [0.5, -1.0] が返ってくる。pub を止めると [0.0, 0.0]
 ```
 
-**Pi で動かす**(USB-RS485 アダプタを `/dev/stm_bus` としてコンテナに渡す)
+**Pi で動かす**
 
-```bash
-docker run -d --name stm-bridge --restart unless-stopped --network host --ipc host \
-  --device /dev/serial/by-id/usb-FTDI_...:/dev/stm_bus \
-  robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
-```
-
-リポジトリを Pi に clone している場合は、`STM_BUS_DEVICE=/dev/serial/by-id/... docker compose --profile robot up -d stm-bridge` でも起動できます。
+1. USB-CAN アダプター(candleLight 互換。CANable 2.0 など)を挿すと `can0` ができます(`ip link show can0` で確認)。
+2. `can0` が起動時に自動で up になるように設定します(通信速度は `docker/pi/80-can.network` の `BitRate`)。
+   ```bash
+   sudo cp docker/pi/80-can.network /etc/systemd/network/
+   sudo systemctl restart systemd-networkd
+   ip -details link show can0        # state UP、bitrate 1000000 になっていれば OK
+   ```
+3. ブリッジを起動します(`--network host` なので、コンテナから `can0` がそのまま使えます)。
+   ```bash
+   docker run -d --name stm-bridge --restart unless-stopped --network host --ipc host \
+     robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
+   ```
+   リポジトリを Pi に clone している場合は `docker compose --profile robot up -d stm-bridge` でも起動できます。
+4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
 
 ### micro-ROS agent
 
