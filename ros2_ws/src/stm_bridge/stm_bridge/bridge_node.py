@@ -1,8 +1,10 @@
 """
 CAN バスにつないだ複数の STM32 と ROS 2 トピックを中継するノード.
 
-  stm<ID>/command (std_msgs/Float32MultiArray) … STM32 に送る指令値(float 2 個まで)
-  stm<ID>/state   (std_msgs/Float32MultiArray) … STM32 から届いた状態
+  stm<ID>/command (std_msgs/Float32MultiArray) … モーター 2 個の目標速度 [rad/s]
+  stm<ID>/state   (std_msgs/Float32MultiArray) … モーター 2 個の実際の速度 [rad/s]
+
+デューティ比は STM32 がエンコーダで測った速度から PID で決める(firmware/stm32_can/motor.c)。
 
 指令は受け取った最新の値を rate_hz の周期で送り続ける(STM32 側はこれが途切れたら止まる)。
 command が command_timeout_s 以上届かないときは空の指令(= 止まる)を送る。

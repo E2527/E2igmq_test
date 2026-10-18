@@ -12,3 +12,5 @@ robocon-ros2-*.tar
 # Python
 __pycache__/
 *.pyc
+# STM32 のテスト(PC 用)のビルド結果
+firmware/**/test/test_firmware

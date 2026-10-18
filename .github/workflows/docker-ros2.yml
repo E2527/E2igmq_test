@@ -17,6 +17,14 @@ jobs:
       - name: colcon build & test
         run: docker compose run --rm build
 
+  # STM32 側のコードを PC 用にビルドしてテストする(HAL の代わりの hal_stub を使う)
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Firmware host tests
+        run: make -C firmware/stm32_can/test
+
   # Pi 向け(arm64)にビルド済みイメージが作れるか確認する
   arm64:
     runs-on: ubuntu-24.04-arm

@@ -13,7 +13,7 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
 | `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
-| `firmware/stm32_can/` | STM32 側の CAN 通信のコード(`stm_bridge` と対になる) |
+| `firmware/stm32_can/` | STM32 側のコード。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
 | `docker/pi/80-can.network` | Pi の `can0` を自動で起動する設定 |
 
 ### 開発(WSL)
@@ -69,12 +69,12 @@ QEMU 経由のビルドはネイティブより数倍遅くなります。開発
 
 ### STM32 との通信(stm_bridge、CAN)
 
-CAN バスにつないだ複数の STM32 と、ROS 2 のトピックを中継します。STM32 側のコードは `firmware/stm32_can/` にあります。
+CAN バスにつないだ複数の STM32 と、ROS 2 のトピックを中継します。STM32 1 枚でモーター 2 個を速度制御し、**デューティ比は STM32 がエンコーダと PID で決めます**。Pi は目標速度を送るだけです。STM32 側のコードは `firmware/stm32_can/` にあります。
 
 | トピック | 型 | 内容 |
 |---|---|---|
-| `stm<ID>/command` | `std_msgs/Float32MultiArray` | STM32 に送る指令値(float 2 個まで)。最新の値を `rate_hz` の周期で送り続ける |
-| `stm<ID>/state` | `std_msgs/Float32MultiArray` | STM32 から届いた状態(float 2 個まで) |
+| `stm<ID>/command` | `std_msgs/Float32MultiArray` | [モーター 1, モーター 2] の目標速度 [rad/s]。最新の値を `rate_hz` の周期で送り続ける |
+| `stm<ID>/state` | `std_msgs/Float32MultiArray` | [モーター 1, モーター 2] の実際の速度 [rad/s] |
 
 - CAN の ID は、指令が `0x100 + ID`、状態が `0x200 + ID` です(標準 11 ビット)。
 - `command` が `command_timeout_s`(既定 0.5 秒)以上届かないと、空の指令(= 止まる)を送ります。STM32 側も、指令が 100 ms 届かなければ止まります。
@@ -87,8 +87,10 @@ ros2 run stm_bridge fake_stm --ids 1 2 &
 ros2 run stm_bridge bridge --ros-args -p can_interface:=sim -p "device_ids:=[1, 2]"
 # 別のターミナルで
 ros2 topic pub stm1/command std_msgs/msg/Float32MultiArray "{data: [0.5, -1.0]}"
-ros2 topic echo stm1/state        # [0.5, -1.0] が返ってくる。pub を止めると [0.0, 0.0]
+ros2 topic echo stm1/state        # 速度が 0.1 秒ほどで [0.5, -1.0] に近づく。pub を止めると 0 に戻る
 ```
+
+`fake_stm` は、速度制御されたモーターの代わりに、速度が目標に少しずつ近づくように動きます。`rqt_plot` で `stm1/command/data[0]` と `stm1/state/data[0]` を並べると、応答の様子が見えます。STM32 側のコードは `make -C /root/firmware/stm32_can/test`(dev コンテナ内)で PC でもテストできます。
 
 **Pi で動かす**
 
