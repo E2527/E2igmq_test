@@ -22,8 +22,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Firmware host tests
         run: make -C firmware/stm32_can/test
+      - name: Install ARM toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
+      - name: Build STM32F303K8 firmware
+        run: make -C firmware/motor_node_f303k8 -j4
 
   # Pi 向け(arm64)にビルド済みイメージが作れるか確認する
   arm64:

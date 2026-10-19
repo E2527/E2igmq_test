@@ -3,7 +3,7 @@
 # WSL(x86_64)では amd64、Raspberry Pi(arm64)では arm64 が自動で選ばれる。
 #
 #   base … ビルドに必要なツールだけ(GUI なし)
-#   dev  … base + rviz2 などの GUI ツール。PC(WSL)での開発用
+#   dev  … base + rviz2 などの GUI ツール + STM32 用のコンパイラ。PC(WSL)での開発用
 #
 # Raspberry Pi に送る実行用イメージは docker/Dockerfile.pi で作る。
 ARG ROS_DISTRO=jazzy
@@ -36,11 +36,14 @@ CMD ["bash"]
 
 # ---- dev: 開発用(ソースはボリュームでマウントする) ----
 FROM base AS dev
-# GUI・デモ用。ソースより先に入れて、src を変えても再インストールされないようにする
+# GUI・デモ用と、STM32 のビルド用(firmware/motor_node_f303k8)。
+# ソースより先に入れて、src を変えても再インストールされないようにする
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rviz2 \
         ros-${ROS_DISTRO}-demo-nodes-cpp \
         ros-${ROS_DISTRO}-demo-nodes-py \
+        gcc-arm-none-eabi \
+        libnewlib-arm-none-eabi \
     && rm -rf /var/lib/apt/lists/*
 
 # rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
