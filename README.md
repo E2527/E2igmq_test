@@ -109,6 +109,16 @@ ros2 topic echo stm1/state        # 速度が 0.1 秒ほどで [0.5, -1.0] に�
      robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
    ```
    リポジトリを Pi に clone している場合は `docker compose --profile robot up -d stm-bridge` でも起動できます。
+
+**USB シリアルで動かす**(CAN の部品がないとき。Nucleo なら USB ケーブル 1 本でつながる)
+
+STM32 を `make LINK=uart` でビルドして書き込み、ブリッジの `can_interface` を `serial:/dev/ttyACM0` にします。中身(ID とデータ)は CAN と同じで、トピックもそのままです。
+
+```bash
+ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
+```
+
+PC(WSL)の dev コンテナで使う場合は、先に Windows の USB を WSL に渡します(`firmware/motor_node_f303k8/README.md` の「USB シリアルで PC とつなぐ」)。dev コンテナは `/dev` を共有しているので、`/dev/ttyACM0` がそのまま見えます。
 4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
 
 ### micro-ROS agent

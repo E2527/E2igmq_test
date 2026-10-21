@@ -3,14 +3,16 @@
 #   make                  … ID 1 の基板用をビルド(build/node1/motor_node.{elf,hex,bin})
 #   make NODE_ID=2        … ID 2 の基板用をビルド
 #   make TEST_MODE=1      … CAN なしで目標速度 APP_TEST_SPEED で回す配線確認用
+#   make LINK=uart        … CAN の代わりに USB シリアル(USART2、Nucleo の ST-LINK の仮想 COM ポート)で通信
 #   make clean
 #
 # 必要なもの: arm-none-eabi-gcc(dev コンテナには入っている)、firmware/lib のサブモジュール
 
 NODE_ID ?= 1
 TEST_MODE ?= 0
+LINK ?= can
 TARGET = motor_node
-BUILD_DIR = build/node$(NODE_ID)$(if $(filter 1,$(TEST_MODE)),-test)
+BUILD_DIR = build/node$(NODE_ID)$(if $(filter uart,$(LINK)),-uart)$(if $(filter 1,$(TEST_MODE)),-test)
 
 LIB = ../lib
 COMMON = ../stm32_can
@@ -24,11 +26,12 @@ C_SOURCES = \
 	Core/Src/stm32f3xx_hal_msp.c \
 	Core/Src/syscalls.c \
 	$(COMMON)/can_node.c \
+	$(COMMON)/uart_node.c \
 	$(COMMON)/motor.c \
 	$(COMMON)/speed_pid.c \
 	$(DEVICE)/Source/Templates/system_stm32f3xx.c \
 	$(addprefix $(HAL)/Src/stm32f3xx_hal, .c _cortex.c _rcc.c _rcc_ex.c _gpio.c _dma.c _flash.c \
-		_flash_ex.c _pwr.c _pwr_ex.c _tim.c _tim_ex.c _can.c _exti.c)
+		_flash_ex.c _pwr.c _pwr_ex.c _tim.c _tim_ex.c _can.c _exti.c _uart.c _uart_ex.c)
 
 ASM_SOURCES = $(DEVICE)/Source/Templates/gcc/startup_stm32f303x8.s
 LDSCRIPT = STM32F303K8Tx_FLASH.ld
@@ -40,7 +43,8 @@ CP = $(PREFIX)objcopy
 SZ = $(PREFIX)size
 
 MCU = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
-C_DEFS = -DUSE_HAL_DRIVER -DSTM32F303x8 -DAPP_NODE_ID=$(NODE_ID) -DAPP_TEST_MODE=$(TEST_MODE)
+C_DEFS = -DUSE_HAL_DRIVER -DSTM32F303x8 -DAPP_NODE_ID=$(NODE_ID) -DAPP_TEST_MODE=$(TEST_MODE) \
+	-DAPP_LINK_UART=$(if $(filter uart,$(LINK)),1,0)
 C_INCLUDES = -ICore/Inc -I$(COMMON) -I$(HAL)/Inc -I$(DEVICE)/Include -I$(LIB)/cmsis-core/Include
 
 CFLAGS = $(MCU) $(C_DEFS) $(C_INCLUDES) -std=gnu11 -O2 -g3 -Wall -Wextra \

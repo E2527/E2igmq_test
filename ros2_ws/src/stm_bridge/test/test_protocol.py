@@ -51,3 +51,44 @@ def test_sim_bus_roundtrip_and_zero_timeout():
     finally:
         bridge.close()
         device.close()
+
+
+def test_serial_frame_layout():
+    frame = can_bus.encode_serial_frame(0x101, b'\x01\x02')
+    assert frame[:2] == b'\xaa\x55'
+    assert frame[2:5] == b'\x01\x01\x02'          # ID 下位・上位、LEN
+    assert frame[5:7] == b'\x01\x02'
+    assert len(frame) == 9
+    assert can_bus.crc16_modbus(b'123456789') == 0x4B37
+
+
+def test_serial_parser_handles_split_noise_and_crc_errors():
+    good1 = can_bus.encode_serial_frame(0x201, protocol.pack_floats([1.0, 2.0]))
+    good2 = can_bus.encode_serial_frame(0x202, b'')
+    bad = bytearray(can_bus.encode_serial_frame(0x203, b'\x00'))
+    bad[5] ^= 0xFF
+    stream = b'\x00\xaa\x13' + good1 + bytes(bad) + b'\xff' + good2
+    parser = can_bus.SerialFrameParser()
+    frames = []
+    for i in range(len(stream)):
+        frames += parser.feed(stream[i:i + 1])     # 1 バイトずつ届いても読める
+    assert frames == [(0x201, protocol.pack_floats([1.0, 2.0])), (0x202, b'')]
+    assert parser.crc_errors == 1
+
+
+def test_serial_bus_roundtrip_over_pty():
+    import os
+    master, slave = os.openpty()
+    bus = can_bus.open_bus('serial:' + os.ttyname(slave), protocol.STATE_FILTER)
+    try:
+        bus.send(0x101, protocol.pack_floats([3.0]))
+        assert can_bus.SerialFrameParser().feed(os.read(master, 64)) == [
+            (0x101, protocol.pack_floats([3.0]))]
+        os.write(master, can_bus.encode_serial_frame(0x105, b'') +           # フィルタに合わない
+                 can_bus.encode_serial_frame(0x201, protocol.pack_floats([4.0])))
+        assert bus.recv(1.0) == (0x201, protocol.pack_floats([4.0]))
+        assert bus.recv(0.0) is None
+    finally:
+        bus.close()
+        os.close(master)
+        os.close(slave)

@@ -12,5 +12,6 @@ void PendSV_Handler(void);
 void SysTick_Handler(void);
 void CAN_RX0_IRQHandler(void);
 void CAN_SCE_IRQHandler(void);
+void USART2_IRQHandler(void);
 
 #endif /* STM32F3XX_IT_H */

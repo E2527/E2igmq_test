@@ -32,6 +32,27 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef *hcan_)
     HAL_NVIC_EnableIRQ(CAN_SCE_IRQn);
 }
 
+void HAL_UART_MspInit(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART2) {
+        return;
+    }
+    __HAL_RCC_USART2_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    /* PA2 = USART2_TX、PA15 = USART2_RX(Nucleo では ST-LINK の仮想 COM ポートにつながっている) */
+    GPIO_InitTypeDef g = {0};
+    g.Pin = GPIO_PIN_2 | GPIO_PIN_15;
+    g.Mode = GPIO_MODE_AF_PP;
+    g.Pull = GPIO_PULLUP;
+    g.Speed = GPIO_SPEED_FREQ_HIGH;
+    g.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &g);
+
+    HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+}
+
 void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM1) {

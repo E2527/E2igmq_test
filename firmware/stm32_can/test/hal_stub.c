@@ -103,6 +103,37 @@ void stub_can_receive(CAN_HandleTypeDef *h, uint32_t std_id, uint32_t ide, const
     HAL_CAN_RxFifo0MsgPendingCallback(h);
 }
 
+uint8_t stub_uart_tx[64];
+uint16_t stub_uart_tx_len;
+int stub_uart_tx_count;
+static uint8_t *s_uart_rx_ptr;
+
+HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *h, uint8_t *data, uint16_t size)
+{
+    (void)h;
+    (void)size;
+    s_uart_rx_ptr = data;
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *h, const uint8_t *data, uint16_t size)
+{
+    (void)h;
+    memcpy(stub_uart_tx, data, size);
+    stub_uart_tx_len = size;
+    stub_uart_tx_count++;
+    return HAL_OK;
+}
+
+/* 1 バイトずつ受信割り込みが起きたように見せる */
+void stub_uart_receive(UART_HandleTypeDef *h, const uint8_t *data, uint16_t len)
+{
+    for (uint16_t i = 0; i < len; i++) {
+        *s_uart_rx_ptr = data[i];
+        HAL_UART_RxCpltCallback(h);
+    }
+}
+
 uint32_t HAL_GetTick(void)
 {
     return stub_tick;

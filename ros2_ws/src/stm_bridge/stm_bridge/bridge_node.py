@@ -71,10 +71,11 @@ class StmBridge(Node):
             return None
         try:
             bus = can_bus.open_bus(self.interface, protocol.STATE_FILTER)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             self.next_open_time = now + 1.0
             self.get_logger().warn(
-                f'{self.interface} を開けません: {e}(Pi で can0 が up になっているか確認してください)',
+                f'{self.interface} を開けません: {e}'
+                f'(CAN なら can0 が up か、シリアルなら USB がつながっているか確認してください)',
                 throttle_duration_sec=5.0)
             return None
         self.get_logger().info(f'{self.interface} を開きました')

@@ -9,6 +9,11 @@
 #define APP_NODE_ID 1
 #endif
 
+/* 通信の線: 0 = CAN、1 = USB シリアル(USART2)。make LINK=uart で 1 になる */
+#ifndef APP_LINK_UART
+#define APP_LINK_UART 0
+#endif
+
 /* 指令がこの時間 [ms] 以上届かなければモーターを止める */
 #define APP_COMMAND_TIMEOUT_MS 100u
 

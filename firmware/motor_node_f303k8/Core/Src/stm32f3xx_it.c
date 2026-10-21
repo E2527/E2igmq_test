@@ -51,6 +51,12 @@ void CAN_RX0_IRQHandler(void)
     HAL_CAN_IRQHandler(&hcan);
 }
 
+/* USB シリアルの受信・送信 → HAL → uart_node.c の HAL_UART_RxCpltCallback など */
+void USART2_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart2);
+}
+
 /* CAN のエラー・状態変化(バスオフなど)。今は HAL に処理を任せるだけ */
 void CAN_SCE_IRQHandler(void)
 {

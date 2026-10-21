@@ -18,6 +18,10 @@ services:
       - ./config:/root/config:ro
       - /tmp/.X11-unix:/tmp/.X11-unix   # WSLg(rviz2 などの GUI 表示)
       - /mnt/wslg:/mnt/wslg
+      - /dev:/dev                       # USB シリアル(/dev/ttyACM0 など)を、挿し直してもコンテナから使えるようにする
+    device_cgroup_rules:
+      - "c 166:* rmw"                   # /dev/ttyACM*(Nucleo の ST-LINK など)
+      - "c 188:* rmw"                   # /dev/ttyUSB*(USB シリアル変換)
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}

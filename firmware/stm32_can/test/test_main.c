@@ -9,6 +9,7 @@
 #include "can_node.h"
 #include "motor.h"
 #include "speed_pid.h"
+#include "uart_node.h"
 
 static int g_failures;
 
@@ -69,6 +70,69 @@ static void test_can_node(void)
     stub_tick = 180;
     can_node_update();
     CHECK(stub_can_tx_count == 2);                                /* 送信用の箱が空いていなければ飛ばす */
+}
+
+/* ---------------- uart_node ---------------- */
+
+static size_t from_hex(const char *hex, uint8_t *out)
+{
+    size_t n = 0;
+    for (; hex[0] && hex[1]; hex += 2) {
+        unsigned v;
+        sscanf(hex, "%2x", &v);
+        out[n++] = (uint8_t)v;
+    }
+    return n;
+}
+
+static void test_uart_node(void)
+{
+    static UART_HandleTypeDef huart = {.gState = HAL_UART_STATE_READY};
+    /* Pi 側(stm_bridge の can_bus.encode_serial_frame)が作るのと同じバイト列 */
+    uint8_t cmd[32], empty[16], other[32];
+    size_t cmd_len = from_hex("aa550101080000003f0000a0bf19a8", cmd);       /* 0x101 [0.5, -1.25] */
+    size_t empty_len = from_hex("aa550101002190", empty);                   /* 0x101 空 = 止まる */
+    memcpy(other, cmd, cmd_len);
+    other[2] = 0x02;                                                         /* 0x102(他の基板宛て)… */
+    other[cmd_len - 2] ^= 0xFF;                                              /* …CRC も合わない */
+    float c[2];
+
+    stub_tick = 0;
+    CHECK(uart_node_init(&huart, 1) == HAL_OK);
+    CHECK(uart_node_get_command(c, 2, 100) == 0);                 /* まだ何も来ていない → 止まる */
+
+    const uint8_t noise[] = {0x00, 0xAA, 0x13, 0x55};
+    stub_uart_receive(&huart, noise, sizeof(noise));
+    stub_uart_receive(&huart, other, (uint16_t)cmd_len);
+    CHECK(uart_node_get_command(c, 2, 100) == 0);                 /* ノイズ・他の宛先・CRC 違いは無視 */
+
+    stub_uart_receive(&huart, cmd, (uint16_t)cmd_len);
+    CHECK(uart_node_get_command(c, 2, 100) == 2 && c[0] == 0.5f && c[1] == -1.25f);
+    stub_tick = 150;
+    CHECK(uart_node_get_command(c, 2, 100) == 0);                 /* 100 ms 以上来ない → 止まる */
+    stub_uart_receive(&huart, cmd, (uint16_t)cmd_len);
+    stub_uart_receive(&huart, empty, (uint16_t)empty_len);
+    CHECK(uart_node_get_command(c, 2, 100) == 0);                 /* 空の指令 → 止まる */
+
+    const float st[2] = {7.0f, -0.5f};
+    uart_node_set_state(st, 2);
+    stub_uart_tx_count = 0;
+    stub_tick = 155;
+    uart_node_update();
+    uint8_t expect[32];
+    size_t expect_len = from_hex("aa550102080000e040000000bf920d", expect); /* 0x201 [7.0, -0.5] */
+    CHECK(stub_uart_tx_count == 1 && stub_uart_tx_len == expect_len);
+    CHECK(memcmp(stub_uart_tx, expect, expect_len) == 0);        /* Pi 側と同じ形式で送る */
+    stub_tick = 160;
+    uart_node_update();
+    CHECK(stub_uart_tx_count == 1);                               /* 周期 10 ms 未満は送らない */
+    huart.gState = HAL_UART_STATE_BUSY_TX;
+    stub_tick = 170;
+    uart_node_update();
+    CHECK(stub_uart_tx_count == 1);                               /* 送信中なら待つ */
+    huart.gState = HAL_UART_STATE_READY;
+    uart_node_update();
+    CHECK(stub_uart_tx_count == 2);
 }
 
 /* ---------------- speed_pid ---------------- */
@@ -202,6 +266,7 @@ int main(void)
         void (*fn)(void);
     } tests[] = {
         {"can_node", test_can_node},
+        {"uart_node", test_uart_node},
         {"enc_delta16", test_enc_delta16},
         {"pid_saturation_and_windup", test_pid_saturation_and_windup},
         {"motor_closed_loop", test_motor_closed_loop},

@@ -1,6 +1,6 @@
 # STM32F303K8 モーター制御ノード
 
-Nucleo-F303K8(STM32F303K8)用の、そのままビルドして書き込めるプロジェクトです。CAN で Pi の `stm_bridge` から目標速度を受け取り、エンコーダ付き DC モーター 2 個を PID で速度制御して、実際の速度を返します。
+Nucleo-F303K8(STM32F303K8)用の、そのままビルドして書き込めるプロジェクトです。CAN(または USB シリアル)で Pi / PC の `stm_bridge` から目標速度を受け取り、エンコーダ付き DC モーター 2 個を PID で速度制御して、実際の速度を返します。
 
 - 通信と制御の中身は `../stm32_can/`(`can_node`、`motor`、`speed_pid`)を使います。
 - ST の HAL と CMSIS は `../lib/` に git サブモジュールとして入っています。
@@ -18,6 +18,7 @@ Nucleo-F303K8(STM32F303K8)用の、そのままビルドして書き込めるプ
 | エンコーダ1 A / B | PA0 / PA1 | A0 / A1 | エンコーダ1 |
 | エンコーダ2 A / B | PB4 / PB5 | D12 / D11 | エンコーダ2 |
 | 状態 LED | PB3 | D13(LD3、基板上の緑 LED) | — |
+| USB シリアル TX / RX | PA2 / PA15 | (基板の中で ST-LINK につながっている) | `make LINK=uart` のときの通信 |
 
 - Nucleo の表記(D9 など)は、念のため UM1956(Nucleo-32 のユーザーマニュアル)のピン配置図で確認してください。
 - エンコーダの入力は内部でプルアップしています。5 V 出力のエンコーダは、つなぐ前にピンが 5 V に耐えられるか(データシートの FT)確認するか、レベル変換を入れてください。
@@ -40,6 +41,7 @@ cd /root/firmware/motor_node_f303k8
 make -j4                  # ID 1 の基板用 → build/node1/motor_node.elf(.hex、.bin も)
 make NODE_ID=2 -j4        # ID 2 の基板用 → build/node2/
 make TEST_MODE=1 -j4      # CAN なしで回る配線確認用 → build/node1-test/
+make LINK=uart -j4        # CAN の代わりに USB シリアルで通信 → build/node1-uart/
 ```
 
 最後に Flash と RAM の使用量が表示されます(Flash 約 11 KB / 64 KB、RAM 約 2 KB / 12 KB)。
@@ -55,6 +57,35 @@ Windows の **STM32CubeProgrammer** を使います(CubeIDE を入れていれ�
    \\wsl$\Ubuntu\home\souta\e2igmq_test\firmware\motor_node_f303k8\build\node1\motor_node.elf
    ```
 4. **Start Programming** を押します。終わったら Disconnect して、Nucleo のリセットボタンを押します。
+
+## USB シリアルで PC とつなぐ(CAN の部品がないとき)
+
+Nucleo の USB には ST-LINK が入っていて、書き込みだけでなく USB シリアル(仮想 COM ポート)にもなります。STM32 の USART2(PA2 / PA15)がこれにつながっているので、**USB ケーブル 1 本で**、CAN と同じ中身の通信ができます。
+
+```
+PC(WSL の dev コンテナ)── USB ──▶ ST-LINK(/dev/ttyACM0)── USART2 ──▶ STM32
+```
+
+1. **USB シリアル版を書き込む**:`make LINK=uart -j4` でビルドし、`build/node1-uart/motor_node.elf` を CubeProgrammer で書き込みます。LD3 が速く点滅(指令待ち)すれば OK です。
+2. **Windows の USB を WSL に渡す**(usbipd-win。Windows の PowerShell で)
+   ```powershell
+   winget install usbipd                # 初回だけ。インストール後に PowerShell を開き直す
+   usbipd list                          # 「ST-Link」の行の BUSID(例 2-3)を確認
+   usbipd bind --busid 2-3              # 初回だけ。管理者の PowerShell で
+   usbipd attach --wsl --busid 2-3      # 挿し直すたびに実行
+   ```
+   WSL で `ls /dev/ttyACM*` を実行して `/dev/ttyACM0` が出れば OK です。
+3. **dev コンテナでブリッジを起動する**(dev コンテナは `/dev` を共有しているので、そのまま見えます)
+   ```bash
+   ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
+   ```
+   別のターミナルで指令を送ると、LD3 が「ゆっくり点滅」に変わり、`stm1/state` に速度が返ってきます。
+   ```bash
+   ros2 topic pub -r 20 stm1/command std_msgs/msg/Float32MultiArray "{data: [1.0, 1.0]}"
+   ros2 topic echo stm1/state
+   ```
+
+**注意**:USB を WSL に渡している間は、Windows の CubeProgrammer から ST-LINK が見えません。書き込むときは、先に PowerShell で `usbipd detach --busid 2-3` を実行します。
 
 ## LED の意味
 

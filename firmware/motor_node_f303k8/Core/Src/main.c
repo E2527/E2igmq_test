@@ -1,7 +1,7 @@
 /*
  * STM32F303K8 モーター制御ノード
  *
- * CAN で Pi(stm_bridge)から目標速度を受け取り、エンコーダ付きモーター 2 個を PID で速度制御して、
+ * CAN(make LINK=uart なら USB シリアル)で Pi(stm_bridge)から目標速度を受け取り、エンコーダ付きモーター 2 個を PID で速度制御して、
  * 実際の速度を返す。CubeMX が生成するコードと同じ形で、周辺回路の初期化を書いてある。
  *
  * クロック: HSI 8 MHz → PLL(HSI/2 × 16)→ SYSCLK 64 MHz
@@ -15,6 +15,7 @@ CAN_HandleTypeDef hcan;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+UART_HandleTypeDef huart2;
 
 static void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -22,6 +23,7 @@ static void MX_CAN_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_USART2_UART_Init(void);
 
 int main(void)
 {
@@ -33,6 +35,7 @@ int main(void)
     MX_TIM1_Init();
     MX_TIM2_Init();
     MX_TIM3_Init();
+    MX_USART2_UART_Init();
 
     app_init();
     while (1) {
@@ -192,6 +195,24 @@ static void MX_TIM2_Init(void)
 static void MX_TIM3_Init(void)
 {
     encoder_init(&htim3, TIM3);
+}
+
+/* USB シリアル(ST-LINK の仮想 COM ポート)。115200 bps、8 ビット、パリティなし、ストップ 1 */
+static void MX_USART2_UART_Init(void)
+{
+    huart2.Instance = USART2;
+    huart2.Init.BaudRate = 115200;
+    huart2.Init.WordLength = UART_WORDLENGTH_8B;
+    huart2.Init.StopBits = UART_STOPBITS_1;
+    huart2.Init.Parity = UART_PARITY_NONE;
+    huart2.Init.Mode = UART_MODE_TX_RX;
+    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+    huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+    huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+    if (HAL_UART_Init(&huart2) != HAL_OK) {
+        Error_Handler();
+    }
 }
 
 /* 回復できないエラー。モーターを止め、LED を速く点滅させ続ける */

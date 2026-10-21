@@ -1,8 +1,10 @@
 /*
- * アプリケーション本体: CAN の指令でモーター 2 個を速度制御する
+ * アプリケーション本体: CAN(または USB シリアル)の指令でモーター 2 個を速度制御する
+ *
+ *   通信は make のときに選ぶ: make → CAN(can_node.c)、make LINK=uart → USB シリアル(uart_node.c)
  *
  *   1 ms ごと   … エンコーダで速度を測り、PID でデューティ比を決める(motor.c)
- *   10 ms ごと  … 実際の速度を CAN で Pi に送る(can_node.c)
+ *   10 ms ごと  … 実際の速度を Pi に送る
  *
  * 状態 LED(PB3、Nucleo の LD3):
  *   ゆっくり点滅(1 秒周期)  … 指令を受け取って制御中
@@ -17,6 +19,19 @@
 #include "can_node.h"
 #include "main.h"
 #include "motor.h"
+#include "uart_node.h"
+
+#if APP_LINK_UART
+#define link_init() uart_node_init(&huart2, APP_NODE_ID)
+#define link_get_command uart_node_get_command
+#define link_set_state uart_node_set_state
+#define link_update uart_node_update
+#else
+#define link_init() can_node_init(&hcan, APP_NODE_ID)
+#define link_get_command can_node_get_command
+#define link_set_state can_node_set_state
+#define link_update can_node_update
+#endif
 
 static motor_t s_motors[2];
 static uint32_t s_last_tick;
@@ -47,7 +62,7 @@ void app_init(void)
     setup_motor(&s_motors[1], TIM_CHANNEL_2, MOTOR2_DIR_GPIO_Port, MOTOR2_DIR_Pin, &htim3,
                 APP_MOTOR2_DIR_SIGN, APP_MOTOR2_ENC_SIGN);
 
-    if (can_node_init(&hcan, APP_NODE_ID) != HAL_OK) {
+    if (link_init() != HAL_OK) {
         Error_Handler();
     }
     s_last_tick = HAL_GetTick();
@@ -76,14 +91,14 @@ void app_loop(void)
         target[1] = APP_TEST_SPEED;
         s_running = true;
 #else
-        s_running = can_node_get_command(target, 2, APP_COMMAND_TIMEOUT_MS) == 2;
+        s_running = link_get_command(target, 2, APP_COMMAND_TIMEOUT_MS) == 2;
 #endif
         float speed[2];
         for (int i = 0; i < 2; i++) {
             speed[i] = motor_update(&s_motors[i], target[i], s_running, dt);
         }
-        can_node_set_state(speed, 2);
+        link_set_state(speed, 2);
         update_led(now);
     }
-    can_node_update();
+    link_update();
 }
