@@ -70,22 +70,25 @@ PC(WSL の dev コンテナ)── USB ──▶ ST-LINK(/dev/ttyACM0)── USA
 2. **Windows の USB を WSL に渡す**(usbipd-win。Windows の PowerShell で)
    ```powershell
    winget install usbipd                # 初回だけ。インストール後に PowerShell を開き直す
-   usbipd list                          # 「ST-Link」の行の BUSID(例 2-3)を確認
-   usbipd bind --busid 2-3              # 初回だけ。管理者の PowerShell で
-   usbipd attach --wsl --busid 2-3      # 挿し直すたびに実行
+   usbipd list                                      # 「ST-Link」(0483:374b)の行があるか確認
+   usbipd bind --hardware-id 0483:374b              # 初回だけ。管理者の PowerShell で
+   usbipd attach --wsl --hardware-id 0483:374b      # 挿し直すたびに実行(WSL を開いておく)
    ```
-   WSL で `ls /dev/ttyACM*` を実行して `/dev/ttyACM0` が出れば OK です。
+   - BUSID(`1-4` など)で指定してもよいですが、ST-LINK はつなぎ直すと番号が変わり「There is no device with busid」になることがあるので、ID(`0483:374b`)で指定するほうが確実です。
+   - `usbipd list` の ST-Link の行が `Attached` になり、WSL で `ls /dev/ttyACM*` を実行して `/dev/ttyACM0` が出れば OK です。
 3. **dev コンテナでブリッジを起動する**(dev コンテナは `/dev` を共有しているので、そのまま見えます)
    ```bash
    ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
    ```
+   `can_interface:=` の `=` を忘れると「Couldn't parse parameter override rule」になります。5 秒ごとに `状態の受信数(5 秒間) stm1: 500` と出れば、STM からの状態が 100 Hz で届いています(0 なら USB シリアル版が書き込まれていない)。
+
    別のターミナルで指令を送ると、LD3 が「ゆっくり点滅」に変わり、`stm1/state` に速度が返ってきます。
    ```bash
    ros2 topic pub -r 20 stm1/command std_msgs/msg/Float32MultiArray "{data: [1.0, 1.0]}"
    ros2 topic echo stm1/state
    ```
 
-**注意**:USB を WSL に渡している間は、Windows の CubeProgrammer から ST-LINK が見えません。書き込むときは、先に PowerShell で `usbipd detach --busid 2-3` を実行します。
+**注意**:USB を WSL に渡している間は、Windows の CubeProgrammer から ST-LINK が見えません。書き込むときは、先に PowerShell で `usbipd detach --hardware-id 0483:374b` を実行します。
 
 ## LED の意味
 
