@@ -80,6 +80,11 @@ static void MX_GPIO_Init(void)
     g.Pull = GPIO_NOPULL;
     g.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOB, &g);
+
+    /* 外付け LED(make APP=led で使う。モーター制御のときは消えたまま) */
+    HAL_GPIO_WritePin(EXT_LED_GPIO_Port, EXT_LED_Pin, GPIO_PIN_RESET);
+    g.Pin = EXT_LED_Pin;
+    HAL_GPIO_Init(EXT_LED_GPIO_Port, &g);
 }
 
 /* 1 Mbps: 32 MHz / Prescaler 2 / (1 + BS1 13 + BS2 2) = 1 MHz、サンプル点 87.5 % */

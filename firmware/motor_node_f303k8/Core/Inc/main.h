@@ -11,6 +11,7 @@
  *   エンコーダ1 A / B    PA0 / PA1     A0 / A1         TIM2_CH1 / CH2(AF1)
  *   エンコーダ2 A / B    PB4 / PB5     D12 / D11       TIM3_CH1 / CH2(AF2)
  *   状態 LED             PB3           D13(LD3)        GPIO 出力
+ *   外付け LED           PA4           A3              GPIO 出力。make APP=led のときに使う
  *   USB シリアル TX / RX PA2 / PA15    (ST-LINK の VCP)USART2(AF7)。make LINK=uart のとき通信に使う
  */
 #ifndef MAIN_H
@@ -24,6 +25,8 @@
 #define MOTOR2_DIR_GPIO_Port GPIOB
 #define LED_Pin GPIO_PIN_3
 #define LED_GPIO_Port GPIOB
+#define EXT_LED_Pin GPIO_PIN_4
+#define EXT_LED_GPIO_Port GPIOA
 
 extern CAN_HandleTypeDef hcan;
 extern TIM_HandleTypeDef htim1;

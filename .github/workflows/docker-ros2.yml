@@ -29,7 +29,9 @@ jobs:
       - name: Install ARM toolchain
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build STM32F303K8 firmware
-        run: make -C firmware/motor_node_f303k8 -j4
+        run: |
+          make -C firmware/motor_node_f303k8 -j4
+          make -C firmware/motor_node_f303k8 LINK=uart APP=led -j4
 
   # Pi 向け(arm64)にビルド済みイメージが作れるか確認する
   arm64:

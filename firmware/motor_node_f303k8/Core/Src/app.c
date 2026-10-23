@@ -16,22 +16,9 @@
 #include <stdbool.h>
 
 #include "app_config.h"
-#include "can_node.h"
+#include "link.h"
 #include "main.h"
 #include "motor.h"
-#include "uart_node.h"
-
-#if APP_LINK_UART
-#define link_init() uart_node_init(&huart2, APP_NODE_ID)
-#define link_get_command uart_node_get_command
-#define link_set_state uart_node_set_state
-#define link_update uart_node_update
-#else
-#define link_init() can_node_init(&hcan, APP_NODE_ID)
-#define link_get_command can_node_get_command
-#define link_set_state can_node_set_state
-#define link_update can_node_update
-#endif
 
 static motor_t s_motors[2];
 static uint32_t s_last_tick;

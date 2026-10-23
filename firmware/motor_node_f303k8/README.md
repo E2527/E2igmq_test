@@ -18,6 +18,7 @@ Nucleo-F303K8(STM32F303K8)用の、そのままビルドして書き込めるプ
 | エンコーダ1 A / B | PA0 / PA1 | A0 / A1 | エンコーダ1 |
 | エンコーダ2 A / B | PB4 / PB5 | D12 / D11 | エンコーダ2 |
 | 状態 LED | PB3 | D13(LD3、基板上の緑 LED) | — |
+| 外付け LED | PA4 | A3 | `make APP=led` のときに点滅させる LED |
 | USB シリアル TX / RX | PA2 / PA15 | (基板の中で ST-LINK につながっている) | `make LINK=uart` のときの通信 |
 
 - Nucleo の表記(D9 など)は、念のため UM1956(Nucleo-32 のユーザーマニュアル)のピン配置図で確認してください。
@@ -42,6 +43,7 @@ make -j4                  # ID 1 の基板用 → build/node1/motor_node.elf(.he
 make NODE_ID=2 -j4        # ID 2 の基板用 → build/node2/
 make TEST_MODE=1 -j4      # CAN なしで回る配線確認用 → build/node1-test/
 make LINK=uart -j4        # CAN の代わりに USB シリアルで通信 → build/node1-uart/
+make LINK=uart APP=led -j4  # 送った値で LED を点滅させるデモ → build/node1-uart-led/
 ```
 
 最後に Flash と RAM の使用量が表示されます(Flash 約 11 KB / 64 KB、RAM 約 2 KB / 12 KB)。
@@ -89,6 +91,24 @@ PC(WSL の dev コンテナ)── USB ──▶ ST-LINK(/dev/ttyACM0)── USA
    ```
 
 **注意**:USB を WSL に渡している間は、Windows の CubeProgrammer から ST-LINK が見えません。書き込むときは、先に PowerShell で `usbipd detach --hardware-id 0483:374b` を実行します。
+
+## LED デモ:送った値で LED を点滅させる(`make APP=led`)
+
+モーターの代わりに、ROS 2 から送った値 [Hz] の速さで、外付けの LED を点滅させます。通信を試すのにちょうどよいデモです。
+
+**配線**:`A3(PA4)── 330 Ω の抵抗 ── LED の長い足(+)`、`LED の短い足(−)── GND`
+
+1. `make LINK=uart APP=led -j4` でビルドし、`build/node1-uart-led/motor_node.elf` を書き込みます(書き込む前に `usbipd detach`、終わったら `usbipd attach`)。
+2. ブリッジを起動します(USB シリアルのときと同じ)。
+3. 別のターミナルで、点滅の速さ [Hz] を送ります。
+   ```bash
+   ros2 topic pub -r 10 stm1/command std_msgs/msg/Float32MultiArray "{data: [2.0]}"   # 1 秒に 2 回
+   ros2 topic pub -r 10 stm1/command std_msgs/msg/Float32MultiArray "{data: [10.0]}"  # 速く
+   ros2 topic pub -r 10 stm1/command std_msgs/msg/Float32MultiArray "{data: [0.0]}"   # 消灯
+   ```
+   - 0 以下で消灯、50 Hz より大きい値は 50 Hz になります。
+   - 送るのを止めると(Ctrl+C)、0.5 秒ほどで消灯します。`--once` で 1 回だけ送っても、すぐに消えます。
+   - `ros2 topic echo stm1/state` で `[使っている速さ, LED(1 = 点灯、0 = 消灯)]` が返ってきます。
 
 ## LED の意味
 

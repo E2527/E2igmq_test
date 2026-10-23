@@ -4,6 +4,7 @@
 #   make NODE_ID=2        … ID 2 の基板用をビルド
 #   make TEST_MODE=1      … CAN なしで目標速度 APP_TEST_SPEED で回す配線確認用
 #   make LINK=uart        … CAN の代わりに USB シリアル(USART2、Nucleo の ST-LINK の仮想 COM ポート)で通信
+#   make APP=led          … モーター制御の代わりに、送った値 [Hz] で PA4(A3)の LED を点滅させるデモ
 #   make clean
 #
 # 必要なもの: arm-none-eabi-gcc(dev コンテナには入っている)、firmware/lib のサブモジュール
@@ -11,8 +12,9 @@
 NODE_ID ?= 1
 TEST_MODE ?= 0
 LINK ?= can
+APP ?= motor
 TARGET = motor_node
-BUILD_DIR = build/node$(NODE_ID)$(if $(filter uart,$(LINK)),-uart)$(if $(filter 1,$(TEST_MODE)),-test)
+BUILD_DIR = build/node$(NODE_ID)$(if $(filter uart,$(LINK)),-uart)$(if $(filter led,$(APP)),-led)$(if $(filter 1,$(TEST_MODE)),-test)
 
 LIB = ../lib
 COMMON = ../stm32_can
@@ -21,7 +23,7 @@ DEVICE = $(LIB)/cmsis_device_f3
 
 C_SOURCES = \
 	Core/Src/main.c \
-	Core/Src/app.c \
+	$(if $(filter led,$(APP)),Core/Src/app_led.c,Core/Src/app.c) \
 	Core/Src/stm32f3xx_it.c \
 	Core/Src/stm32f3xx_hal_msp.c \
 	Core/Src/syscalls.c \
