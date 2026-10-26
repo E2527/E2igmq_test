@@ -8,6 +8,7 @@ services:
       target: dev
     image: robocon/ros2:jazzy-dev
     container_name: ros_dev
+    restart: unless-stopped # WSL や PC を再起動しても自動で起動する(docker stop で止めたときは起動しない)
     network_mode: host      # ROS 2 の DDS 通信をホストと共有
     ipc: host
     stdin_open: true
@@ -32,6 +33,7 @@ services:
   build:
     extends: dev
     container_name: ros_build
+    restart: "no"           # 終わったら止まったままにする(dev の restart を引き継がない)
     command: >
       bash -c "colcon build --symlink-install && colcon test && colcon test-result --verbose"
 
