@@ -37,6 +37,7 @@ source install/setup.bash
 - 止めるときは `docker compose stop dev`、再開は `docker compose start dev`。
 - `network_mode: host` なので、同じネットワークの他マシン(Pi など)と ROS 2 トピックをやり取りできます。
 - `dev` には rviz2 が入っていて、WSLg 経由で Windows に表示できます(コンテナ内で `rviz2`)。
+- `dev` には MoveIt 2(アームの動作計画)も入っています。デモはコンテナ内で `ros2 launch moveit_resources_panda_moveit_config demo.launch.py`。rviz2 の「MotionPlanning」パネルで、ゴールの姿勢を動かして **Plan & Execute** を押すとアームが動きます。自分のアームの設定は `ros2 launch moveit_setup_assistant setup_assistant.launch.py` で作れます。
 
 ### Raspberry Pi(arm64)で使う
 

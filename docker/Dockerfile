@@ -46,6 +46,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libnewlib-arm-none-eabi \
     && rm -rf /var/lib/apt/lists/*
 
+# MoveIt 2(アームの動作計画)。大きい(1 GB 以上)ので別の層にして、上の層を変えても入れ直さないようにする
+#   moveit-resources-panda-moveit-config … 動作確認用のデモ(ros2 launch moveit_resources_panda_moveit_config demo.launch.py)
+#   ros2-controllers                       … デモや自作アームで、関節を動かすコントローラー
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-moveit \
+        ros-${ROS_DISTRO}-moveit-resources-panda-moveit-config \
+        ros-${ROS_DISTRO}-ros2-controllers \
+    && rm -rf /var/lib/apt/lists/*
+
 # rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
 COPY ros2_ws/src ${WS}/src
 RUN apt-get update \
