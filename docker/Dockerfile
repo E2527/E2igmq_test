@@ -55,6 +55,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-ros2-controllers \
     && rm -rf /var/lib/apt/lists/*
 
+# Nav2(自律移動)と SLAM(地図づくり)。MoveIt と同じく大きいので別の層にする
+#   nav2-bringup        … 起動ファイルと、Gazebo の TurtleBot3 で試すシミュレーション
+#                         (ros2 launch nav2_bringup tb3_simulation_launch.py)
+#   slam-toolbox        … LiDAR で走りながら地図を作る
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-navigation2 \
+        ros-${ROS_DISTRO}-nav2-bringup \
+        ros-${ROS_DISTRO}-nav2-minimal-tb3-sim \
+        ros-${ROS_DISTRO}-slam-toolbox \
+    && rm -rf /var/lib/apt/lists/*
+
 # rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
 COPY ros2_ws/src ${WS}/src
 RUN apt-get update \
