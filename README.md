@@ -59,6 +59,24 @@ docker exec -it ros_dev bash -c "source /opt/ros/jazzy/setup.bash && cd ~/ros2_w
 
 確認は `docker exec -it ros_dev bash` でコンテナに入り、`ros2 run demo_nodes_cpp talker` と `rviz2` が動けば OK です。
 
+**Linux(Fedora など)の PC の場合**
+
+WSL も usbipd もいりません。USB(`/dev/ttyACM0`)はそのままコンテナから見え、STM32 への書き込みも dev コンテナの中で `make flash` でできます(CubeProgrammer 不要)。
+
+```bash
+# Docker Engine(Fedora 標準の Podman ではなく Docker を使う。compose の設定がそのまま動く)
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER     # このあとログアウトしてログインし直す
+
+# 以降の git clone 〜 docker compose up は上と同じ
+```
+
+- **GUI(rviz2)**:ログインするたびに、ホストで `xhost +local:` を実行してからコンテナで `rviz2` を起動します(コンテナの root に画面への表示を許可する)。
+- **SELinux**:dev コンテナは `security_opt: label=disable` にしてあるので、マウントしたフォルダや `/dev` はそのまま使えます。
+- **USB シリアルがつながらない・すぐ切れる**:ModemManager が `/dev/ttyACM0` を横取りしていることがあります。`sudo systemctl disable --now ModemManager` で止めます(モバイル回線のモデムを使っていなければ不要なサービスです)。
+- **Pi と ROS 2 で通信する**:firewalld が DDS の通信を止めます。Pi とつなぐネットワークを信頼済みにします(例:`sudo firewall-cmd --permanent --zone=trusted --add-source=192.168.0.0/24 && sudo firewall-cmd --reload`。アドレスは自分のネットワークに合わせる)。
+
 ### 開発(WSL)
 
 リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。

@@ -17,12 +17,16 @@ services:
       - ./ros2_ws:/root/ros2_ws
       - ./firmware:/root/firmware       # STM32 のコードを make -C /root/firmware/stm32_can/test でテストする
       - ./config:/root/config:ro
-      - /tmp/.X11-unix:/tmp/.X11-unix   # WSLg(rviz2 などの GUI 表示)
-      - /mnt/wslg:/mnt/wslg
+      - /tmp/.X11-unix:/tmp/.X11-unix   # rviz2 などの GUI 表示(WSLg と Linux の X11 / Xwayland)
+      - /mnt/wslg:/mnt/wslg             # WSLg 用(WSL 以外では空のフォルダになるだけ)
       - /dev:/dev                       # USB シリアル(/dev/ttyACM0 など)を、挿し直してもコンテナから使えるようにする
     device_cgroup_rules:
       - "c 166:* rmw"                   # /dev/ttyACM*(Nucleo の ST-LINK など)
       - "c 188:* rmw"                   # /dev/ttyUSB*(USB シリアル変換)
+      - "c 189:* rmw"                   # /dev/bus/usb(make flash で ST-LINK に書き込む)
+      - "c 226:* rmw"                   # /dev/dri(Linux で rviz2 を GPU で描く)
+    security_opt:
+      - label=disable                   # Fedora などの SELinux で、マウントしたフォルダや /dev が拒否されないようにする
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}

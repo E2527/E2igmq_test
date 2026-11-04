@@ -60,6 +60,16 @@ Windows の **STM32CubeProgrammer** を使います(CubeIDE を入れていれ�
    ```
 4. **Start Programming** を押します。終わったら Disconnect して、Nucleo のリセットボタンを押します。
 
+### コンテナの中から書き込む(`make flash`)
+
+dev コンテナには openocd が入っているので、Nucleo が USB で見えていれば(Linux の PC ならそのまま、WSL なら usbipd で attach したあと)、ビルドと書き込みを 1 行でできます。CubeProgrammer も detach もいりません。
+
+```bash
+make LINK=uart APP=led flash      # ビルドして書き込む(ビルドの指定は make と同じ)
+```
+
+最後に `** Verified OK **` と出れば成功です。`Error: open failed` は ST-LINK が見えていない(USB をつなぐ / attach する)、消去や書き込みに失敗するときは `make flash OPENOCD_RESET=connect_assert_srst`(リセットしながらつなぐ)を試します。
+
 ## USB シリアルで PC とつなぐ(CAN の部品がないとき)
 
 Nucleo の USB には ST-LINK が入っていて、書き込みだけでなく USB シリアル(仮想 COM ポート)にもなります。STM32 の USART2(PA2 / PA15)がこれにつながっているので、**USB ケーブル 1 本で**、CAN と同じ中身の通信ができます。

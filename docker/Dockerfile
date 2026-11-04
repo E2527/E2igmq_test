@@ -36,7 +36,7 @@ CMD ["bash"]
 
 # ---- dev: 開発用(ソースはボリュームでマウントする) ----
 FROM base AS dev
-# GUI・デモ用と、STM32 のビルド用(firmware/motor_node_f303k8)。
+# GUI・デモ用と、STM32 のビルド・書き込み用(firmware/motor_node_f303k8、make flash は openocd)。
 # ソースより先に入れて、src を変えても再インストールされないようにする
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rviz2 \
@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-demo-nodes-py \
         gcc-arm-none-eabi \
         libnewlib-arm-none-eabi \
+        openocd \
     && rm -rf /var/lib/apt/lists/*
 
 # MoveIt 2(アームの動作計画)。大きい(1 GB 以上)ので別の層にして、上の層を変えても入れ直さないようにする

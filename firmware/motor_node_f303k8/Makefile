@@ -5,6 +5,7 @@
 #   make TEST_MODE=1      … CAN なしで目標速度 APP_TEST_SPEED で回す配線確認用
 #   make LINK=uart        … CAN の代わりに USB シリアル(USART2、Nucleo の ST-LINK の仮想 COM ポート)で通信
 #   make APP=led          … モーター制御の代わりに、送った値 [Hz] で PA4(A3)の LED を点滅させるデモ
+#   make flash            … ビルドして、USB でつないだ Nucleo(ST-LINK)に書き込む(openocd。dev コンテナには入っている)
 #   make clean
 #
 # 必要なもの: arm-none-eabi-gcc(dev コンテナには入っている)、firmware/lib のサブモジュール
@@ -60,7 +61,7 @@ OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o))) \
 vpath %.c $(sort $(dir $(C_SOURCES)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))
 
-.PHONY: all clean check-deps
+.PHONY: all clean check-deps flash
 all: check-deps $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).bin
 
 check-deps:
@@ -91,6 +92,14 @@ $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf
 
 $(BUILD_DIR):
 	mkdir -p $@
+
+# 書き込めないとき(コアがロックアップしているなど)は make flash OPENOCD_RESET="connect_assert_srst" で、リセットしながらつなぐ
+OPENOCD = openocd
+OPENOCD_RESET ?=
+flash: all
+	$(OPENOCD) -f interface/stlink.cfg -f target/stm32f3x.cfg \
+		$(if $(OPENOCD_RESET),-c "reset_config srst_only srst_nogate $(OPENOCD_RESET)") \
+		-c "program $(BUILD_DIR)/$(TARGET).elf verify reset exit"
 
 clean:
 	rm -rf build
