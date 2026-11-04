@@ -54,7 +54,7 @@ git submodule update --init       # STM32 の HAL
 # イメージを作ってコンテナを起動(MoveIt / Nav2 入りなので初回は 20〜40 分)
 docker compose build dev
 docker compose up -d dev
-docker exec -it ros_dev bash -c "cd ~/ros2_ws && colcon build --symlink-install"
+docker exec -it ros_dev bash -c "source /opt/ros/jazzy/setup.bash && cd ~/ros2_ws && colcon build --symlink-install"
 ```
 
 確認は `docker exec -it ros_dev bash` でコンテナに入り、`ros2 run demo_nodes_cpp talker` と `rviz2` が動けば OK です。
