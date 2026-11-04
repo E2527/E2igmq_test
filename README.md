@@ -18,6 +18,47 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `firmware/lib/` | ST の HAL と CMSIS(git サブモジュール。`git submodule update --init` で取得) |
 | `docker/pi/80-can.network` | Pi の `can0` を自動で起動する設定 |
 
+### 新しい PC でのセットアップ
+
+コード・Dockerfile・設定はすべてこのリポジトリに入っているので、新しい PC では **clone してイメージを作り直す** だけで同じ環境になります(古い PC からフォルダをコピーするより確実です)。古い PC に push していない変更があれば、先に `git status` で確認して push しておきます。
+
+**Windows 側(PowerShell)**
+
+```powershell
+wsl --install -d Ubuntu-24.04     # 管理者で。終わったら再起動
+winget install usbipd             # Nucleo の USB を WSL に渡す
+# 管理者で(どの USB ポートに挿しても WSL に渡せるようにする)
+usbipd policy add --effect Allow --operation AutoBind --hardware-id 0483:374b
+```
+
+- STM32 に書き込むなら **STM32CubeProgrammer** も入れます。
+- VS Code を使うなら、拡張機能「WSL」と「Dev Containers」を入れます。
+
+**WSL(Ubuntu)側**
+
+```bash
+# Docker Engine(Docker Desktop は不要)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER     # このあと PowerShell で wsl --shutdown して開き直す
+
+# git
+git config --global user.name "名前"
+git config --global user.email "メールアドレス"
+
+# リポジトリ(WSL のホーム ~ の下に置く)
+git clone https://github.com/e2527/E2igmq_test.git ~/e2igmq_test
+cd ~/e2igmq_test
+git checkout <使うブランチ>
+git submodule update --init       # STM32 の HAL
+
+# イメージを作ってコンテナを起動(MoveIt / Nav2 入りなので初回は 20〜40 分)
+docker compose build dev
+docker compose up -d dev
+docker exec -it ros_dev bash -c "cd ~/ros2_ws && colcon build --symlink-install"
+```
+
+確認は `docker exec -it ros_dev bash` でコンテナに入り、`ros2 run demo_nodes_cpp talker` と `rviz2` が動けば OK です。
+
 ### 開発(WSL)
 
 リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。
