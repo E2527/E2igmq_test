@@ -81,6 +81,14 @@ sudo usermod -aG docker $USER     # このあとログアウトしてログイ�
 
 リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。
 
+**いつもの起動は `./dev.sh` の 1 つだけ**です。コンテナが止まっていれば起動して、そのまま中の bash に入ります(Linux では `xhost +local:` も自動で実行)。`./dev.sh rviz2` のように後ろにコマンドを書くと、コンテナでそのコマンドだけ実行します。どこからでも使えるように、`~/.bashrc` に次の 1 行を足しておくと、`ros` と打つだけで入れます。
+
+```bash
+echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
+```
+
+中身は次のコマンドと同じです。
+
 ```bash
 docker compose build dev        # 初回、または package.xml の依存を変えたとき
 docker compose up -d dev        # コンテナ ros_dev を起動
