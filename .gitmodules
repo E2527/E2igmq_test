@@ -1,0 +1,9 @@
+[submodule "firmware/lib/cmsis_device_f3"]
+	path = firmware/lib/cmsis_device_f3
+	url = https://github.com/STMicroelectronics/cmsis_device_f3.git
+[submodule "firmware/lib/stm32f3xx-hal-driver"]
+	path = firmware/lib/stm32f3xx-hal-driver
+	url = https://github.com/STMicroelectronics/stm32f3xx-hal-driver.git
+[submodule "firmware/lib/cmsis-core"]
+	path = firmware/lib/cmsis-core
+	url = https://github.com/STMicroelectronics/cmsis-core.git

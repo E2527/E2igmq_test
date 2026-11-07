@@ -3,7 +3,7 @@
 # WSL(x86_64)では amd64、Raspberry Pi(arm64)では arm64 が自動で選ばれる。
 #
 #   base … ビルドに必要なツールだけ(GUI なし)
-#   dev  … base + rviz2 などの GUI ツール。PC(WSL)での開発用
+#   dev  … base + rviz2 などの GUI ツール + STM32 用のコンパイラ。PC(WSL)での開発用
 #
 # Raspberry Pi に送る実行用イメージは docker/Dockerfile.pi で作る。
 ARG ROS_DISTRO=jazzy
@@ -36,11 +36,35 @@ CMD ["bash"]
 
 # ---- dev: 開発用(ソースはボリュームでマウントする) ----
 FROM base AS dev
-# GUI・デモ用。ソースより先に入れて、src を変えても再インストールされないようにする
+# GUI・デモ用と、STM32 のビルド・書き込み用(firmware/motor_node_f303k8、make flash は openocd)。
+# ソースより先に入れて、src を変えても再インストールされないようにする
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rviz2 \
         ros-${ROS_DISTRO}-demo-nodes-cpp \
         ros-${ROS_DISTRO}-demo-nodes-py \
+        gcc-arm-none-eabi \
+        libnewlib-arm-none-eabi \
+        openocd \
+    && rm -rf /var/lib/apt/lists/*
+
+# MoveIt 2(アームの動作計画)。大きい(1 GB 以上)ので別の層にして、上の層を変えても入れ直さないようにする
+#   moveit-resources-panda-moveit-config … 動作確認用のデモ(ros2 launch moveit_resources_panda_moveit_config demo.launch.py)
+#   ros2-controllers                       … デモや自作アームで、関節を動かすコントローラー
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-moveit \
+        ros-${ROS_DISTRO}-moveit-resources-panda-moveit-config \
+        ros-${ROS_DISTRO}-ros2-controllers \
+    && rm -rf /var/lib/apt/lists/*
+
+# Nav2(自律移動)と SLAM(地図づくり)。MoveIt と同じく大きいので別の層にする
+#   nav2-bringup        … 起動ファイルと、Gazebo の TurtleBot3 で試すシミュレーション
+#                         (ros2 launch nav2_bringup tb3_simulation_launch.py)
+#   slam-toolbox        … LiDAR で走りながら地図を作る
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-navigation2 \
+        ros-${ROS_DISTRO}-nav2-bringup \
+        ros-${ROS_DISTRO}-nav2-minimal-tb3-sim \
+        ros-${ROS_DISTRO}-slam-toolbox \
     && rm -rf /var/lib/apt/lists/*
 
 # rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる

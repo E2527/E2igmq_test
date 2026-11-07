@@ -62,6 +62,16 @@ HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *h, uint32_t fifo,
                                        CAN_RxHeaderTypeDef *header, uint8_t data[]);
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *h);
 
+/* ---- UART ---- */
+typedef enum { HAL_UART_STATE_READY = 0x20U, HAL_UART_STATE_BUSY_TX = 0x21U } HAL_UART_StateTypeDef;
+typedef struct {
+    volatile HAL_UART_StateTypeDef gState;
+} UART_HandleTypeDef;
+HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *h, uint8_t *data, uint16_t size);
+HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *h, const uint8_t *data, uint16_t size);
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *h);
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *h);
+
 /* ---- その他 ---- */
 uint32_t HAL_GetTick(void);
 void __disable_irq(void);
@@ -75,5 +85,9 @@ extern CAN_TxHeaderTypeDef stub_can_tx_header;
 extern uint8_t stub_can_tx_data[8];
 extern int stub_can_tx_count;
 void stub_can_receive(CAN_HandleTypeDef *h, uint32_t std_id, uint32_t ide, const void *data, uint32_t dlc);
+extern uint8_t stub_uart_tx[64];
+extern uint16_t stub_uart_tx_len;
+extern int stub_uart_tx_count;
+void stub_uart_receive(UART_HandleTypeDef *h, const uint8_t *data, uint16_t len);
 
 #endif /* TEST_HAL_STUB_MAIN_H */
