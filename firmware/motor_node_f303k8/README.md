@@ -46,7 +46,7 @@ make LINK=uart -j4        # CAN の代わりに USB シリアルで通信 → bu
 make LINK=uart APP=led -j4  # 送った値で LED を点滅させるデモ → build/node1-uart-led/
 ```
 
-最後に Flash と RAM の使用量が表示されます(Flash 約 11 KB / 64 KB、RAM 約 2 KB / 12 KB)。
+最後に Flash と RAM の使用量が表示されます(Flash 約 14 KB / 64 KB、RAM 約 2 KB / 12 KB)。
 
 ## 書き込み
 

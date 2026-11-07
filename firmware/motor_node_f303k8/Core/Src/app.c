@@ -13,6 +13,7 @@
  */
 #include "app.h"
 
+#include <math.h>
 #include <stdbool.h>
 
 #include "app_config.h"
@@ -78,7 +79,8 @@ void app_loop(void)
         target[1] = APP_TEST_SPEED;
         s_running = true;
 #else
-        s_running = link_get_command(target, 2, APP_COMMAND_TIMEOUT_MS) == 2;
+        s_running = link_get_command(target, 2, APP_COMMAND_TIMEOUT_MS) == 2
+                    && isfinite(target[0]) && isfinite(target[1]);   /* NaN / inf は止まる */
 #endif
         float speed[2];
         for (int i = 0; i < 2; i++) {

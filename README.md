@@ -112,14 +112,14 @@ source install/setup.bash
 Pi では `docker/Dockerfile.pi` の `runtime` イメージを使います(Pi 5 / Pi 400 共通)。
 
 - `ros:jazzy-ros-core` に、`ros2_ws` のビルド結果と実行時の依存(`exec_depend`)だけを載せた軽量版です。rviz2 などの GUI やコンパイラは入りません。
-- root ではなく `ubuntu` ユーザー(UID 1000、`dialout` グループ所属)で動きます。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
+- root ではなく `ubuntu` ユーザー(UID 1000)で動きます。compose の `stm-bridge` は `dialout` グループを足して起動します。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
 - `ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
 
 **方法1: Pi 上で直接ビルド**(いちばん簡単。Pi 側で自動的に arm64 になります)
 
 ```bash
 docker compose build runtime
-STM32_DEVICE=/dev/serial/by-id/usb-STM32...  docker compose --profile robot up -d micro-ros-agent
+docker compose --profile robot up -d stm-bridge
 docker compose --profile robot run --rm runtime ros2 topic list
 ```
 
@@ -178,6 +178,7 @@ ros2 topic echo stm1/state        # 速度が 0.1 秒ほどで [0.5, -1.0] に�
      robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
    ```
    リポジトリを Pi に clone している場合は `docker compose --profile robot up -d stm-bridge` でも起動できます。
+4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
 
 **USB シリアルで動かす**(CAN の部品がないとき。Nucleo なら USB ケーブル 1 本でつながる)
 
@@ -187,12 +188,17 @@ STM32 を `make LINK=uart` でビルドして書き込み、ブリッジの `can
 ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
 ```
 
+Pi で compose を使う場合は、`STM_INTERFACE` で通信の線を切り替えます(`stm-bridge` サービスは `/dev` を共有し、`dialout` グループで動きます)。
+
+```bash
+STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile robot up -d stm-bridge
+```
+
 PC(WSL)の dev コンテナで使う場合は、先に Windows の USB を WSL に渡します(`firmware/motor_node_f303k8/README.md` の「USB シリアルで PC とつなぐ」)。dev コンテナは `/dev` を共有しているので、`/dev/ttyACM0` がそのまま見えます。
-4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
 
 ### micro-ROS agent
 
-`micro-ros-agent` サービスは `microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
+今は STM32 との通信に `stm_bridge` を使っているので、`micro-ros-agent` は `--profile robot` では起動しません(同じ `/dev/ttyACM0` を取り合うため)。使うときは `docker compose --profile micro-ros up -d micro-ros-agent` で起動します。`microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
 
 ### CI
 

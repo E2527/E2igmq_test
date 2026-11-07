@@ -52,18 +52,29 @@ services:
     ipc: host
     profiles: ["robot"]
 
-  # CAN バスの STM32 と ROS 2 トピックを中継する(Pi 側で起動)
-  # can0 は Pi 側で up にしておく(docker/pi/80-can.network)。network_mode: host なのでそのまま見える
-  # 設定は ros2_ws/src/stm_bridge/config/bridge.yaml(変えたらイメージを作り直す)
+  # STM32 と ROS 2 トピックを中継する(Pi 側で起動)
+  #   CAN:        can0 を Pi 側で up にしておく(docker/pi/80-can.network)。network_mode: host なのでそのまま見える
+  #   USB シリアル: STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile robot up -d
+  # そのほかの設定は ros2_ws/src/stm_bridge/config/bridge.yaml(変えたらイメージを作り直す)
   stm-bridge:
     image: robocon/ros2:jazzy
     network_mode: host
     ipc: host
     restart: unless-stopped
     command: ros2 launch stm_bridge bridge.launch.py
+    environment:
+      - STM_INTERFACE=${STM_INTERFACE:-}        # 空なら bridge.yaml の can_interface(can0)
+    volumes:
+      - /dev:/dev                               # USB を挿し直しても見えるように
+    device_cgroup_rules:
+      - "c 166:* rmw"                           # /dev/ttyACM*
+      - "c 188:* rmw"                           # /dev/ttyUSB*
+    group_add:
+      - dialout                                 # ubuntu ユーザーでシリアルポートを開けるように
     profiles: ["robot"]
 
-  # STM32 と USB シリアルでつなぐ micro-ROS agent(Pi 側で起動)
+  # STM32 と USB シリアルでつなぐ micro-ROS agent(今は stm_bridge を使うので、普段は起動しない)
+  # stm-bridge と同じ /dev/ttyACM0 を取り合うので、使うときは --profile micro-ros で別に起動する
   micro-ros-agent:
     image: microros/micro-ros-agent:jazzy
     network_mode: host
@@ -71,4 +82,4 @@ services:
     devices:
       - ${STM32_DEVICE:-/dev/ttyACM0}:/dev/stm32
     command: serial --dev /dev/stm32 -b 115200
-    profiles: ["robot"]
+    profiles: ["micro-ros"]
