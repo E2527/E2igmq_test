@@ -1,5 +1,6 @@
 # rviz2 の表示設定: 上から見た図で、ロボットの位置(odom)と各モジュールの向きを表示する
 #   赤い矢印 … 目標の向き、緑の矢印 … 実際の向き(長さは速さ)
+#   画面の上がロボットの前(+x)、左がロボットの左(+y)になるように、視点を -90° 回している(Angle)
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
@@ -60,4 +61,4 @@ Visualization Manager:
       Scale: 150
       X: 0
       Y: 0
-      Angle: 0
+      Angle: -1.5708
