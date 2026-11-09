@@ -96,7 +96,10 @@ class SwerveNode(Node):
         self.cmd_time = time.monotonic()
 
     def on_state(self, index, msg):
-        if len(msg.data) < 2:
+        if len(msg.data) < 2 or not all(math.isfinite(v) for v in msg.data[:2]):
+            # NaN が 1 回でも入ると、オドメトリの位置がずっと NaN になってしまう
+            self.get_logger().warn(f'stm{self.ids[index]}/state を無視します: {list(msg.data)}',
+                                   throttle_duration_sec=1.0)
             return
         self.measured[index] = (time.monotonic(), float(msg.data[0]), float(msg.data[1]))
 
@@ -200,6 +203,7 @@ class SwerveNode(Node):
         m.scale.x = 0.05 + 0.2 * min(1.0, abs(wheel_speed) / self.kinematics.max_wheel_speed)
         m.scale.y = m.scale.z = 0.03
         m.color.r, m.color.g, m.color.b, m.color.a = rgba
+        m.lifetime.nanosec = 500_000_000    # 届かなくなったら 0.5 秒で消す(古い矢印を残さない)
         return m
 
 

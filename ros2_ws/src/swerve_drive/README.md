@@ -85,6 +85,8 @@ ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 
 ### 2. 実機を PC から Wi-Fi で操縦する
 
+> **注意**:STM32 側のスワーブ用のファームウェア(向きの制御)は、まだありません。今の `motor_node`(モーター 2 個の速度制御)を書き込んだ基板に対して `drive` / `swerve.launch.py` を起動しないでください。`[向き, タイヤの速さ]` の「向き」が、モーター 1 の目標速度として使われてしまいます。
+
 ```
 【PC】ゲームパッド ─ teleop.launch.py ── /cmd_vel ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
 【PC】rviz2 ◀──────────────── /odom、TF、矢印 ──(Wi-Fi)──────── 【Pi】
