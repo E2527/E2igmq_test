@@ -4,14 +4,16 @@
     # 実機なしで試す(モジュールのふり + rviz2 で確認 + ゲームパッド)
     ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 
-    # 実機(stm_bridge で STM32 × 4 とつなぐ)
-    ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=can0
+    # 実機(stm_bridge で STM32 × 4 とつなぐ)。PC から Wi-Fi で操縦するときは joy なしで起動し、
+    # PC で teleop.launch.py を起動する
+    ros2 launch swerve_drive swerve.launch.py can_interface:=can0
 
 引数:
     sim           … true: fake_modules で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
-    joy           … true: ゲームパッドで /cmd_vel を出す(joy + teleop_twist_joy、config/joy.yaml)
+    joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す(teleop.launch.py)
     rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
-    can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。空なら bridge.yaml の値
+    can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
+                    指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
 
 /cmd_vel を出すものは何でもよい(ゲームパッド、キーボード、Nav2)。自動操縦にするときも、
 このファイルはそのままで、Nav2 が /cmd_vel を出すようにすればよい。
@@ -21,9 +23,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
 
@@ -48,7 +51,6 @@ def _bridge(context):
 def generate_launch_description():
     share = get_package_share_directory('swerve_drive')
     swerve_config = os.path.join(share, 'config', 'swerve.yaml')
-    joy_config = os.path.join(share, 'config', 'joy.yaml')
     sim = LaunchConfiguration('sim')
     joy = LaunchConfiguration('joy')
     rviz = LaunchConfiguration('rviz')
@@ -57,7 +59,8 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
-        DeclareLaunchArgument('can_interface', default_value=''),
+        DeclareLaunchArgument(
+            'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
 
         # 足回りの計算(/cmd_vel → 各モジュール、各モジュール → /odom)
         Node(package='swerve_drive', executable='swerve_node', name='swerve_drive',
@@ -68,11 +71,11 @@ def generate_launch_description():
              parameters=[swerve_config], output='screen', condition=IfCondition(sim)),
         OpaqueFunction(function=_bridge),
 
-        # ゲームパッド → /cmd_vel
-        Node(package='joy', executable='joy_node', name='joy_node',
-             parameters=[joy_config], condition=IfCondition(joy)),
-        Node(package='teleop_twist_joy', executable='teleop_node', name='teleop_twist_joy_node',
-             parameters=[joy_config], condition=IfCondition(joy)),
+        # ゲームパッド → /cmd_vel(PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する)
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'teleop.launch.py')),
+            launch_arguments={'rviz': 'false'}.items(),
+            condition=IfCondition(joy)),
 
         # 表示(PC で)
         Node(package='rviz2', executable='rviz2', name='rviz2',

@@ -42,7 +42,8 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 | `config/swerve.yaml` | **ロボットに合わせて書き換える設定**(モジュールの位置、タイヤの半径、ID など) |
 | `config/joy.yaml` | ゲームパッドのボタンとスティックの割り当て |
 | `config/swerve.rviz` | rviz2 の表示設定(上から見た図) |
-| `launch/swerve.launch.py` | まとめて起動する |
+| `launch/swerve.launch.py` | ロボット側(足回り一式)を起動する。`sim:=true` で実機なしでも |
+| `launch/teleop.launch.py` | PC 側(ゲームパッド + rviz2)を起動する |
 | `test/test_kinematics.py` | 計算のテスト(`colcon test` で実行される) |
 
 ## 使い方
@@ -78,15 +79,59 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 ```
 
-### 2. 実機で動かす
+### 2. 実機を PC から Wi-Fi で操縦する
 
-STM32 × 4 を CAN でつないで、`stm_bridge` ごと起動します(ID は `swerve.yaml` の `device_ids` が使われます)。
-
-```bash
-ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=can0
+```
+【PC】ゲームパッド ─ teleop.launch.py ── /cmd_vel ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
+【PC】rviz2 ◀──────────────── /odom、TF、矢印 ──(Wi-Fi)──────── 【Pi】
 ```
 
+**① PC と Pi を同じ Wi-Fi につなぎ、ROS_DOMAIN_ID をそろえる**(最初に 1 回だけ)
+
+両方のリポジトリの一番上(`~/e2igmq_test`)に `.env` を作ります。番号は 1〜101 の好きな数で、**PC と Pi で同じ**にします(会場でほかのチームと混ざらないように、0 以外にします)。
+
+```bash
+echo "ROS_DOMAIN_ID=42" > ~/e2igmq_test/.env
+```
+
+PC は `docker compose up -d dev`(または `ros`)で、コンテナを作り直すと反映されます。
+
+**② Pi で足回りを起動する**
+
+```bash
+docker compose --profile robot up -d drive                                      # CAN のとき
+STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile robot up -d drive    # USB シリアルのとき
+docker compose logs -f drive                                                    # ログを見る
+```
+
+**③ PC でゲームパッドと rviz2 を起動する**(ゲームパッドは PC に USB か Bluetooth でつなぐ)
+
+```bash
+ros2 launch swerve_drive teleop.launch.py
+```
+
+**LB を押しながら**左スティックで移動、右スティックで回転します。rviz2 に Pi から届いたオドメトリと矢印が出れば、Wi-Fi の通信もできています。
+
 **最初はタイヤを浮かせて**、少しずつ試してください。
+
+#### Wi-Fi でつながらないとき
+
+| 症状 | 確認すること |
+|---|---|
+| PC で `ros2 topic list` に `/odom` が出ない | PC と Pi の `ROS_DOMAIN_ID` が同じか(`echo $ROS_DOMAIN_ID`)、同じ Wi-Fi か |
+| 同じ設定なのに見えない | Fedora のファイアウォール(上の README の「Linux(Fedora など)の PC の場合」)。Wi-Fi のルーターの「AP アイソレーション(プライバシーセパレーター)」が有効だと、Wi-Fi の機器どうしで通信できない |
+| それでも見えない(マルチキャストが届かない Wi-Fi) | `.env` に `ROS_STATIC_PEERS=相手の IP アドレス` を足す(PC には Pi の、Pi には PC の IP) |
+| 操縦がカクカクする、遅れる | 電波が混んでいる。5 GHz の Wi-Fi にする、ルーターを近くに置く |
+
+**安全のしくみ**:Wi-Fi が切れて `/cmd_vel` が 0.5 秒届かなければ、`swerve_node` がタイヤを止めます(さらに STM32 も、指令が 0.1 秒届かなければ止まります)。LB を離したときも止まります。
+
+### 3. 1 台で全部動かす(机の上のテスト)
+
+ゲームパッドを、足回りを動かすコンピューターに直接つなぐときは、`joy:=true` を付けます。
+
+```bash
+ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=serial:/dev/ttyACM0
+```
 
 ## ロボットに合わせて変えるところ(`config/swerve.yaml`)
 
