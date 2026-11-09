@@ -1,7 +1,8 @@
 """
 スワーブの足回りを起動する.
 
-    # 実機なしで試す(モジュールのふり + rviz2 で確認 + ゲームパッド)
+    # 実機なしで試す(モジュールのふり + rviz2 で確認 + WASD かゲームパッド)
+    ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true
     ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 
     # 実機(stm_bridge で STM32 × 4 とつなぐ)。PC から Wi-Fi で操縦するときは joy なしで起動し、
@@ -11,6 +12,7 @@
 引数:
     sim           … true: fake_modules で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す(teleop.launch.py)
+    keyboard      … true: WASD で /cmd_vel を出す(keyboard_teleop のウィンドウが開く)
     rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
@@ -59,6 +61,7 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('keyboard', default_value='false'),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
 
@@ -76,6 +79,8 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'teleop.launch.py')),
             launch_arguments={'rviz': 'false'}.items(),
             condition=IfCondition(joy)),
+        Node(package='swerve_drive', executable='keyboard_teleop', name='keyboard_teleop',
+             condition=IfCondition(LaunchConfiguration('keyboard'))),
 
         # 表示(PC で)
         Node(package='rviz2', executable='rviz2', name='rviz2',

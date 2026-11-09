@@ -8,7 +8,7 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 
 ```
  ゲームパッド ─ joy ─ teleop_twist_joy ─┐
- キーボード ─ teleop_twist_keyboard ────┼─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
+ キーボード(WASD)─ keyboard_teleop ─────┼─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
  Nav2(自動操縦、これから)────────────┘    (vx, vy, ω)      │          [向き, タイヤの速さ]   (CAN / USB シリアル)
                                                             │
                          /odom、TF(odom → base_link) ◀─────┴─── stm1〜4/state ◀───────────────────────────┘
@@ -38,6 +38,7 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 |---|---|
 | `swerve_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `swerve_drive/swerve_node.py` | ROS 2 のノード。`/cmd_vel` を受け取って指令を出し、`/odom` と TF と矢印を出す |
+| `swerve_drive/keyboard_teleop.py` | WASD で操縦するウィンドウ(押している間だけ動く。キーの計算は `teleop_keys.py`) |
 | `swerve_drive/fake_modules.py` | 実機の代わりに、モジュールのふりをする(向きはゆっくり回り、タイヤは少し遅れて追いつく) |
 | `config/swerve.yaml` | **ロボットに合わせて書き換える設定**(モジュールの位置、タイヤの半径、ID など) |
 | `config/joy.yaml` | ゲームパッドのボタンとスティックの割り当て |
@@ -59,19 +60,22 @@ source install/setup.bash
 ### 1. 実機なしで試す(PC)
 
 ```bash
-ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true
+ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true
 ```
 
 rviz2 に、上から見たロボットが出ます。**赤い矢印が目標の向き、緑の矢印が実際の向き**(長さは速さ)です。
-別のターミナルで、キーボードで動かしてみます。
+画面の右がロボットの前(+x)、上が左(+y)です。
 
-```bash
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
+「WASD で操縦」という小さなウィンドウも開きます。**このウィンドウを選んだまま**、キーを押している間だけ動きます。
 
-- `i` 前進、`,` 後退、`j` / `l` その場で回転
-- **Shift を押しながら** `J` / `L` で、横に移動(全方向に動けるロボット用のモード)
-- `k` で止まる
+| キー | 動き |
+|---|---|
+| W / S | 前 / 後ろ |
+| A / D | 左 / 右(向きを変えずに横に動く) |
+| Q / E | 左回り / 右回り |
+| Shift | 速くする(2 倍) |
+
+W と D を同時に押すと斜めに進みます。ほかのウィンドウを選ぶと止まります。速さは `linear_speed` / `angular_speed` パラメータで変えられます。
 
 ゲームパッドがあれば、`joy:=true` を付けると使えます(LB を押している間だけ動きます。ボタンの割り当ては `config/joy.yaml`)。
 
@@ -108,6 +112,7 @@ docker compose logs -f drive                                                    
 
 ```bash
 ros2 launch swerve_drive teleop.launch.py
+ros2 launch swerve_drive teleop.launch.py joy:=false keyboard:=true    # WASD で操縦するとき
 ```
 
 **LB を押しながら**左スティックで移動、右スティックで回転します。rviz2 に Pi から届いたオドメトリと矢印が出れば、Wi-Fi の通信もできています。
