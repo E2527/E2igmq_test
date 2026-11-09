@@ -13,6 +13,7 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
 | `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
+| `ros2_ws/src/swerve_drive/` | 独立ステアリング(スワーブ)の足回り。`/cmd_vel` → 各モジュール、オドメトリ(詳しくは中の README) |
 | `firmware/stm32_can/` | STM32 側の部品。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
 | `firmware/motor_node_f303k8/` | 上の部品を使った STM32F303K8 用の完成したプロジェクト(`make` でビルド) |
 | `firmware/lib/` | ST の HAL と CMSIS(git サブモジュール。`git submodule update --init` で取得) |

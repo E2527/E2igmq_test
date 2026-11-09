@@ -1,0 +1,81 @@
+"""
+スワーブの足回りを起動する.
+
+    # 実機なしで試す(モジュールのふり + rviz2 で確認 + ゲームパッド)
+    ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
+
+    # 実機(stm_bridge で STM32 × 4 とつなぐ)
+    ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=can0
+
+引数:
+    sim           … true: fake_modules で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
+    joy           … true: ゲームパッドで /cmd_vel を出す(joy + teleop_twist_joy、config/joy.yaml)
+    rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
+    can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。空なら bridge.yaml の値
+
+/cmd_vel を出すものは何でもよい(ゲームパッド、キーボード、Nav2)。自動操縦にするときも、
+このファイルはそのままで、Nav2 が /cmd_vel を出すようにすればよい。
+"""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import yaml
+
+
+def _bridge(context):
+    """実機のときの stm_bridge。device_ids は swerve.yaml と同じにする."""
+    share = get_package_share_directory('swerve_drive')
+    with open(os.path.join(share, 'config', 'swerve.yaml'), encoding='utf-8') as f:
+        ids = yaml.safe_load(f)['swerve_drive']['ros__parameters']['device_ids']
+    bridge_config = os.path.join(get_package_share_directory('stm_bridge'), 'config',
+                                 'bridge.yaml')
+    overrides = {'device_ids': ids}
+    interface = LaunchConfiguration('can_interface').perform(context)
+    if interface:
+        overrides['can_interface'] = interface
+    return [Node(
+        package='stm_bridge', executable='bridge', name='stm_bridge',
+        parameters=[bridge_config, overrides], output='screen',
+        condition=UnlessCondition(LaunchConfiguration('sim')))]
+
+
+def generate_launch_description():
+    share = get_package_share_directory('swerve_drive')
+    swerve_config = os.path.join(share, 'config', 'swerve.yaml')
+    joy_config = os.path.join(share, 'config', 'joy.yaml')
+    sim = LaunchConfiguration('sim')
+    joy = LaunchConfiguration('joy')
+    rviz = LaunchConfiguration('rviz')
+
+    return LaunchDescription([
+        DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('joy', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('can_interface', default_value=''),
+
+        # 足回りの計算(/cmd_vel → 各モジュール、各モジュール → /odom)
+        Node(package='swerve_drive', executable='swerve_node', name='swerve_drive',
+             parameters=[swerve_config], output='screen'),
+
+        # 実機のふり / 実機とつなぐ
+        Node(package='swerve_drive', executable='fake_modules', name='fake_modules',
+             parameters=[swerve_config], output='screen', condition=IfCondition(sim)),
+        OpaqueFunction(function=_bridge),
+
+        # ゲームパッド → /cmd_vel
+        Node(package='joy', executable='joy_node', name='joy_node',
+             parameters=[joy_config], condition=IfCondition(joy)),
+        Node(package='teleop_twist_joy', executable='teleop_node', name='teleop_twist_joy_node',
+             parameters=[joy_config], condition=IfCondition(joy)),
+
+        # 表示(PC で)
+        Node(package='rviz2', executable='rviz2', name='rviz2',
+             arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],
+             condition=IfCondition(rviz)),
+    ])

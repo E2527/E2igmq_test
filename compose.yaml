@@ -25,6 +25,7 @@ services:
       - "c 188:* rmw"                   # /dev/ttyUSB*(USB シリアル変換)
       - "c 189:* rmw"                   # /dev/bus/usb(make flash で ST-LINK に書き込む)
       - "c 226:* rmw"                   # /dev/dri(Linux で rviz2 を GPU で描く)
+      - "c 13:* rmw"                    # /dev/input(ゲームパッド。swerve_drive の joy:=true)
     security_opt:
       - label=disable                   # Fedora などの SELinux で、マウントしたフォルダや /dev が拒否されないようにする
     environment:
