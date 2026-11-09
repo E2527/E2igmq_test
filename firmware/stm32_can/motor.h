@@ -35,6 +35,7 @@ typedef struct {
 
     /* 内部の状態 */
     uint16_t last_count;
+    float delta;            /* 前回の motor_measure() から回った角度 [rad] */
     float duty;             /* 最後に出したデューティ比(-1〜1) */
 } motor_t;
 
@@ -42,8 +43,15 @@ typedef struct {
 void motor_start(motor_t *m);
 
 /* 速度を測り、enabled なら target [rad/s] に向けて PID 制御する。enabled でなければ止める。
- * dt は前回の呼び出しからの時間 [s]。測った速度 [rad/s] を返す */
+ * dt は前回の呼び出しからの時間 [s]。測った速度 [rad/s] を返す(motor_measure + motor_control) */
 float motor_update(motor_t *m, float target, bool enabled, float dt);
+
+/* 速度だけを測る。測った速度 [rad/s] を返し、回った角度を m->delta に入れる。
+ * 2 個のモーターの測定結果から目標を決めたいとき(スワーブなど)は、先に両方を測ってから motor_control() を呼ぶ */
+float motor_measure(motor_t *m, float dt);
+
+/* 最後に測った速度を使って、enabled なら target [rad/s] に向けて PID 制御する。enabled でなければ止める */
+void motor_control(motor_t *m, float target, bool enabled, float dt);
 
 /* デューティ比(-1〜1)を直接出す(動作確認用) */
 void motor_set_duty(motor_t *m, float duty);

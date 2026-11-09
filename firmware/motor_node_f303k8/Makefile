@@ -5,6 +5,7 @@
 #   make TEST_MODE=1      … CAN なしで目標速度 APP_TEST_SPEED で回す配線確認用
 #   make LINK=uart        … CAN の代わりに USB シリアル(USART2、Nucleo の ST-LINK の仮想 COM ポート)で通信
 #   make APP=led          … モーター制御の代わりに、送った値 [Hz] で PA4(A3)の LED を点滅させるデモ
+#   make APP=swerve       … スワーブ(差動式の独立ステアリング)のモジュール 1 個。NODE_ID でモジュールを選ぶ
 #   make flash            … ビルドして、USB でつないだ Nucleo(ST-LINK)に書き込む(openocd。dev コンテナには入っている)
 #   make clean
 #
@@ -15,7 +16,10 @@ TEST_MODE ?= 0
 LINK ?= can
 APP ?= motor
 TARGET = motor_node
-BUILD_DIR = build/node$(NODE_ID)$(if $(filter uart,$(LINK)),-uart)$(if $(filter led,$(APP)),-led)$(if $(filter 1,$(TEST_MODE)),-test)
+BUILD_DIR = build/node$(NODE_ID)$(if $(filter uart,$(LINK)),-uart)$(if $(filter-out motor,$(APP)),-$(APP))$(if $(filter 1,$(TEST_MODE)),-test)
+
+# アプリ本体: motor → app.c、led → app_led.c、swerve → app_swerve.c
+APP_SOURCE = $(if $(filter motor,$(APP)),Core/Src/app.c,Core/Src/app_$(APP).c)
 
 LIB = ../lib
 COMMON = ../stm32_can
@@ -24,7 +28,8 @@ DEVICE = $(LIB)/cmsis_device_f3
 
 C_SOURCES = \
 	Core/Src/main.c \
-	$(if $(filter led,$(APP)),Core/Src/app_led.c,Core/Src/app.c) \
+	$(APP_SOURCE) \
+	Core/Src/app_common.c \
 	Core/Src/stm32f3xx_it.c \
 	Core/Src/stm32f3xx_hal_msp.c \
 	Core/Src/syscalls.c \
@@ -32,6 +37,7 @@ C_SOURCES = \
 	$(COMMON)/uart_node.c \
 	$(COMMON)/motor.c \
 	$(COMMON)/speed_pid.c \
+	$(COMMON)/swerve_module.c \
 	$(DEVICE)/Source/Templates/system_stm32f3xx.c \
 	$(addprefix $(HAL)/Src/stm32f3xx_hal, .c _cortex.c _rcc.c _rcc_ex.c _gpio.c _dma.c _flash.c \
 		_flash_ex.c _pwr.c _pwr_ex.c _tim.c _tim_ex.c _can.c _exti.c _uart.c _uart_ex.c)
@@ -55,6 +61,7 @@ CFLAGS = $(MCU) $(C_DEFS) $(C_INCLUDES) -std=gnu11 -O2 -g3 -Wall -Wextra \
 ASFLAGS = $(MCU) -g3
 LDFLAGS = $(MCU) -specs=nano.specs -specs=nosys.specs -T$(LDSCRIPT) \
 	-Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections -Wl,--print-memory-usage
+LIBS = -lm      # sinf / cosf など(swerve_module.c)
 
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o))) \
 	$(addprefix $(BUILD_DIR)/,$(notdir $(ASM_SOURCES:.s=.o)))
@@ -81,7 +88,7 @@ $(BUILD_DIR)/%.o: %.s Makefile | $(BUILD_DIR)
 	$(AS) -c $(ASFLAGS) $< -o $@
 
 $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(LDSCRIPT)
-	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+	$(CC) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
 	$(SZ) $@
 
 $(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf

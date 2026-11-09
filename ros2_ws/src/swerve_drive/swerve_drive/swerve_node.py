@@ -54,7 +54,7 @@ class SwerveNode(Node):
         self.ids = ids
         self.cmd_timeout_s = p('cmd_timeout_s', 0.5).value
         self.state_timeout_s = p('state_timeout_s', 0.5).value
-        self.use_cosine_scale = p('cosine_scale', True).value
+        self.use_cosine_scale = p('cosine_scale', False).value
         self.odom_frame = p('odom_frame', 'odom').value
         self.base_frame = p('base_frame', 'base_link').value
         self.publish_tf = p('publish_tf', True).value

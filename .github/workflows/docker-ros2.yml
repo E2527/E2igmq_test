@@ -32,6 +32,8 @@ jobs:
         run: |
           make -C firmware/motor_node_f303k8 -j4
           make -C firmware/motor_node_f303k8 LINK=uart APP=led -j4
+          make -C firmware/motor_node_f303k8 APP=swerve -j4
+          make -C firmware/motor_node_f303k8 LINK=uart APP=swerve TEST_MODE=1 -j4
 
   # Pi 向け(arm64)にビルド済みイメージが作れるか確認する
   arm64:

@@ -15,7 +15,7 @@ swerve_drive:
     module_y:     [0.25, -0.25, 0.25, -0.25]  # 中心から左に何 m(右はマイナス)
     wheel_radius: 0.05                      # タイヤの半径 [m]
     max_wheel_speed: 40.0                   # タイヤの速さの上限 [rad/s](40 rad/s × 0.05 m = 2 m/s)
-    cosine_scale: true                      # 向きが合うまでタイヤを遅くする
+    cosine_scale: false                     # 向きが合うまでタイヤを遅くする(STM32 の APP=swerve がやるので false)
     cmd_timeout_s: 0.5                      # cmd_vel がこれ以上来なければ止まる
     state_timeout_s: 0.5                    # モジュールの状態がこれ以上来なければオドメトリを止める
     rate_hz: 50.0                           # 指令を出す周期

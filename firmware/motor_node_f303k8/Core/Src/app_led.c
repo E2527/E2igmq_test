@@ -15,6 +15,7 @@
 
 #include <stdbool.h>
 
+#include "app_common.h"
 #include "app_config.h"
 #include "link.h"
 #include "main.h"
@@ -22,7 +23,6 @@
 #define LED_DEMO_MAX_HZ 50.0f
 
 static uint32_t s_last_tick;
-static uint32_t s_last_led;
 static float s_phase;   /* 点滅の位置(0〜1)。0〜0.5 が点灯 */
 
 void app_init(void)
@@ -31,16 +31,6 @@ void app_init(void)
         Error_Handler();
     }
     s_last_tick = HAL_GetTick();
-    s_last_led = s_last_tick;
-}
-
-static void update_status_led(uint32_t now, bool running)
-{
-    uint32_t half_period = running ? 500u : 100u;
-    if (now - s_last_led >= half_period) {
-        s_last_led = now;
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    }
 }
 
 void app_loop(void)
@@ -74,7 +64,7 @@ void app_loop(void)
 
         float state[2] = {hz, on ? 1.0f : 0.0f};
         link_set_state(state, 2);
-        update_status_led(now, running);
+        app_status_led(now, running);
     }
     link_update();
 }

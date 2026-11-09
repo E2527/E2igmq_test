@@ -16,6 +16,7 @@
 #include <math.h>
 #include <stdbool.h>
 
+#include "app_common.h"
 #include "app_config.h"
 #include "link.h"
 #include "main.h"
@@ -23,47 +24,15 @@
 
 static motor_t s_motors[2];
 static uint32_t s_last_tick;
-static uint32_t s_last_led;
 static bool s_running;
-
-static void setup_motor(motor_t *m, uint32_t pwm_channel, GPIO_TypeDef *dir_port, uint16_t dir_pin,
-                        TIM_HandleTypeDef *enc_tim, int8_t dir_sign, int8_t enc_sign)
-{
-    *m = (motor_t){
-        .pwm_tim = &htim1,
-        .pwm_channel = pwm_channel,
-        .dir_port = dir_port,
-        .dir_pin = dir_pin,
-        .enc_tim = enc_tim,
-        .enc_sign = enc_sign,
-        .dir_sign = dir_sign,
-        .pid = {.kp = APP_KP, .ki = APP_KI, .kff = APP_KFF, .max_duty = APP_MAX_DUTY},
-    };
-    enc_speed_init(&m->speed, APP_COUNTS_PER_REV, APP_SPEED_FILTER);
-    motor_start(m);
-}
 
 void app_init(void)
 {
-    setup_motor(&s_motors[0], TIM_CHANNEL_1, MOTOR1_DIR_GPIO_Port, MOTOR1_DIR_Pin, &htim2,
-                APP_MOTOR1_DIR_SIGN, APP_MOTOR1_ENC_SIGN);
-    setup_motor(&s_motors[1], TIM_CHANNEL_2, MOTOR2_DIR_GPIO_Port, MOTOR2_DIR_Pin, &htim3,
-                APP_MOTOR2_DIR_SIGN, APP_MOTOR2_ENC_SIGN);
-
+    app_motors_init(s_motors);
     if (link_init() != HAL_OK) {
         Error_Handler();
     }
     s_last_tick = HAL_GetTick();
-    s_last_led = s_last_tick;
-}
-
-static void update_led(uint32_t now)
-{
-    uint32_t half_period = s_running ? 500u : 100u;
-    if (now - s_last_led >= half_period) {
-        s_last_led = now;
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    }
 }
 
 void app_loop(void)
@@ -87,7 +56,7 @@ void app_loop(void)
             speed[i] = motor_update(&s_motors[i], target[i], s_running, dt);
         }
         link_set_state(speed, 2);
-        update_led(now);
+        app_status_led(now, s_running);
     }
     link_update();
 }

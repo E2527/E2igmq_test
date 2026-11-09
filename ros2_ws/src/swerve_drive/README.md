@@ -85,7 +85,7 @@ ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 
 ### 2. 実機を PC から Wi-Fi で操縦する
 
-> **注意**:STM32 側のスワーブ用のファームウェア(向きの制御)は、まだありません。今の `motor_node`(モーター 2 個の速度制御)を書き込んだ基板に対して `drive` / `swerve.launch.py` を起動しないでください。`[向き, タイヤの速さ]` の「向き」が、モーター 1 の目標速度として使われてしまいます。
+> **STM32 には、スワーブ用のファームウェア(`make APP=swerve NODE_ID=1〜4`)を書き込みます**(`firmware/motor_node_f303k8/README.md` の「スワーブのモジュール」)。モーター 2 個の速度制御用(`APP` なし)を書き込んだ基板に対して `drive` / `swerve.launch.py` を起動しないでください。`[向き, タイヤの速さ]` の「向き」が、モーター 1 の目標速度として使われてしまいます。
 
 ```
 【PC】ゲームパッド ─ teleop.launch.py ── /cmd_vel ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
@@ -148,12 +148,12 @@ ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=serial:/dev/t
 | `wheel_radius` | タイヤの半径 [m] |
 | `max_wheel_speed` | タイヤの速さの上限 [rad/s]。超えそうなときは、全部のモジュールを同じ割合で遅くします |
 | `device_ids` | 各モジュールの STM32 の ID |
-| `cosine_scale` | 向きが目標からずれている間は、タイヤを遅くします(違う方向へ進むのを防ぐ) |
+| `cosine_scale` | 向きが目標からずれている間は、Pi でもタイヤを遅くします。STM32(`APP=swerve`)が 1 ms ごとに同じことをするので、ふつうは `false` |
 
 変えたら、`colcon build` し直してから起動します。
 
 ## これからやること
 
-- **STM32 側**:1 モジュール分の、差動ミキシング(2 つのモーター → 向きとタイヤ)と、向きの位置制御。角度センサーが決まったら作ります。
+- **STM32 側**:差動ミキシングと向きの制御は `firmware/motor_node_f303k8`(`APP=swerve`)にあります。絶対角度センサーを付けたら、`app_swerve.c` の `update_module_angle()` を書き換えます。
 - **自動操縦**:Nav2 の出す `/cmd_vel` に切り替えます。ゲームパッドと Nav2 を切り替えるには `twist_mux` を使います。
 - **オドメトリの精度**:タイヤが滑るとずれるので、IMU を足して robot_localization で合成します(そのときは `publish_tf: false`)。

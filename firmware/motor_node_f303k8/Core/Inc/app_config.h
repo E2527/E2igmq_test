@@ -43,4 +43,16 @@
 #endif
 #define APP_TEST_SPEED 5.0f
 
+/* ---- スワーブのモジュール(make APP=swerve)。機構に合わせて書き換える ----
+ * モーターの速さと回転は「差動ギアに入る軸」で測る。APP_COUNTS_PER_REV は、この軸 1 回転あたりの
+ * エンコーダのカウント数にする(モーターの軸ではなく、減速したあとの軸)。
+ * 符号が逆(向きが反対に回る、タイヤが後ろに転がる)なら、その比をマイナスにする。 */
+#define APP_SWERVE_STEER_RATIO 0.25f        /* 2 個が同じ向きに 1 rad 回ると、モジュールが何 rad 回るか */
+#define APP_SWERVE_WHEEL_RATIO 0.5f         /* 2 個が逆向きに 1 rad ずつ回ると、タイヤが何 rad 回るか */
+#define APP_SWERVE_COUPLING 0.0f            /* モジュールだけが 1 rad 回ると、タイヤが何 rad 回るか */
+#define APP_SWERVE_ANGLE_KP 8.0f            /* 向きのずれ 1 rad → 向きを変える速さ 8 rad/s */
+#define APP_SWERVE_MAX_STEER_RATE 6.0f      /* 向きを変える最大の速さ [rad/s] */
+#define APP_SWERVE_MAX_MOTOR_SPEED 25.0f    /* モーター 1 個の最大の速さ [rad/s](無負荷の最高速より少し下) */
+#define APP_SWERVE_TEST_WHEEL_SPEED 3.0f    /* TEST_MODE で前に転がす速さ [rad/s] */
+
 #endif /* APP_CONFIG_H */

@@ -7,6 +7,7 @@ stm_bridge と STM32 の代わりに、トピックで直接やり取りする:
 
     ・向きは最大 steer_speed [rad/s] で、近いほうの回り方で目標に近づく
     ・タイヤの速さは wheel_time_constant [s] でなめらかに目標に近づく
+      (向きが合うまでは遅くする。STM32 の APP=swerve と同じ)
     ・指令が timeout_s 以上届かなければタイヤを止める(STM32 と同じ)
 
     ros2 run swerve_drive fake_modules
@@ -18,7 +19,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 
-from .kinematics import wrap_angle
+from .kinematics import cosine_scale, wrap_angle
 
 
 class FakeModules(Node):
@@ -57,6 +58,7 @@ class FakeModules(Node):
             if now - received > self.timeout_s:
                 speed = 0.0     # 指令が途切れたら止まる(向きはそのまま)
                 angle = self.angles[i]
+            speed *= cosine_scale(angle, self.angles[i])
             turn = wrap_angle(angle - self.angles[i])
             self.angles[i] = wrap_angle(self.angles[i] + max(-max_turn, min(max_turn, turn)))
             self.speeds[i] += gain * (speed - self.speeds[i])
