@@ -17,7 +17,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='root',
+    maintainer='E2527',
     maintainer_email='e2527@matsue-ct.ac.jp',
     description='CAN バス上の STM32 と ROS 2 トピックを中継するブリッジ',
     license='TODO: License declaration',

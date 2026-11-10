@@ -24,8 +24,8 @@ swerve_drive:
     publish_tf: true                        # odom → base_link の TF を出す(robot_localization を使うときは false)
 
 # 実機なしで試すときの、モジュールのふりをするノード
+# (device_ids は、起動ファイルが上の swerve_drive の device_ids を渡すので、書かなくてよい)
 fake_modules:
   ros__parameters:
-    device_ids: [1, 2, 3, 4]
     steer_speed: 6.0                        # 向きを変える最大の速さ [rad/s]
     wheel_time_constant: 0.1                # タイヤの速さが目標に近づく速さ [s]

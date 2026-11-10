@@ -9,9 +9,10 @@ set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
 # Linux(Fedora など)では、コンテナの root に画面への表示を許可する(WSLg では不要)
+# +local: だと同じ PC のすべてのユーザーに許可してしまうので、root だけに絞る
 if [ -z "${WSL_DISTRO_NAME:-}" ] && [ -n "${DISPLAY:-}" ]; then
     if command -v xhost >/dev/null; then
-        xhost +local: >/dev/null
+        xhost +SI:localuser:root >/dev/null
     else
         echo "xhost がないので rviz2 などの GUI が表示できないかもしれません(Fedora: sudo dnf install xhost)" >&2
     fi

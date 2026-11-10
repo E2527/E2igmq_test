@@ -4,7 +4,7 @@
   <name>stm_bridge</name>
   <version>0.0.0</version>
   <description>CAN バスでつないだ複数の STM32 と ROS 2 トピックを中継するブリッジ</description>
-  <maintainer email="e2527@matsue-ct.ac.jp">root</maintainer>
+  <maintainer email="e2527@matsue-ct.ac.jp">E2527</maintainer>
   <license>TODO: License declaration</license>
 
   <depend>rclpy</depend>

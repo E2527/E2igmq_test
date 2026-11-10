@@ -97,7 +97,7 @@ class StmBridge(Node):
             self.bus.close()
             self.bus = None
         self.next_open_time = time.monotonic() + 1.0
-        self.get_logger().error(f'CAN 通信エラー: {reason}。1 秒後に開き直します')
+        self.get_logger().error(f'{self.interface} の通信エラー: {reason}。1 秒後に開き直します')
 
     def send_commands(self):
         bus = self.bus or self.open_bus()

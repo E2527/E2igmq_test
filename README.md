@@ -13,6 +13,7 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
 | `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
+| `ros2_ws/src/omni_drive/` | オムニホイール(3 輪 / 4 輪)の足回り。STM32 はモーター 2 個の速度制御のままで使える(詳しくは中の README) |
 | `ros2_ws/src/swerve_drive/` | 独立ステアリング(スワーブ)の足回り。`/cmd_vel` → 各モジュール、オドメトリ(詳しくは中の README) |
 | `firmware/stm32_can/` | STM32 側の部品。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
 | `firmware/motor_node_f303k8/` | 上の部品を使った STM32F303K8 用の完成したプロジェクト(`make` でビルド) |
@@ -73,7 +74,7 @@ sudo usermod -aG docker $USER     # このあとログアウトしてログイ�
 # 以降の git clone 〜 docker compose up は上と同じ
 ```
 
-- **GUI(rviz2)**:ログインするたびに、ホストで `xhost +local:` を実行してからコンテナで `rviz2` を起動します(コンテナの root に画面への表示を許可する)。
+- **GUI(rviz2)**:`./dev.sh`(`ros`)で入れば自動で許可されます。`docker exec` で入るときは、ログインするたびにホストで `xhost +SI:localuser:root` を実行してから `rviz2` を起動します(コンテナの root に画面への表示を許可する)。
 - **SELinux**:dev コンテナは `security_opt: label=disable` にしてあるので、マウントしたフォルダや `/dev` はそのまま使えます。
 - **USB シリアルがつながらない・すぐ切れる**:ModemManager が `/dev/ttyACM0` を横取りしていることがあります。`sudo systemctl disable --now ModemManager` で止めます(モバイル回線のモデムを使っていなければ不要なサービスです)。
 - **Pi と ROS 2 で通信する**:firewalld が DDS の通信を止めます。Pi とつなぐネットワークを信頼済みにします(例:`sudo firewall-cmd --permanent --zone=trusted --add-source=192.168.0.0/24 && sudo firewall-cmd --reload`。アドレスは自分のネットワークに合わせる)。
@@ -82,13 +83,24 @@ sudo usermod -aG docker $USER     # このあとログアウトしてログイ�
 
 リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。
 
-**いつもの起動は `./dev.sh` の 1 つだけ**です。コンテナが止まっていれば起動して、そのまま中の bash に入ります(Linux では `xhost +local:` も自動で実行)。`./dev.sh rviz2` のように後ろにコマンドを書くと、コンテナでそのコマンドだけ実行します。どこからでも使えるように、`~/.bashrc` に次の 1 行を足しておくと、`ros` と打つだけで入れます。
+**いつもの起動は `./dev.sh` の 1 つだけ**です。コンテナが止まっていれば起動して、そのまま中の bash に入ります(Linux では、コンテナに画面への表示を許可する `xhost` も自動で実行)。`./dev.sh rviz2` のように後ろにコマンドを書くと、コンテナでそのコマンドだけ実行します。どこからでも使えるように、`~/.bashrc` に次の 1 行を足しておくと、`ros` と打つだけで入れます。
 
 ```bash
 echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-中身は次のコマンドと同じです。
+足回りのシミュレーション(rviz2 + WASD)は **`./sim.sh`** の 1 つで起動できます。必要なところだけビルドしてから起動します。
+
+```bash
+./sim.sh            # スワーブ(swerve_drive)
+./sim.sh omni       # オムニホイール(omni_drive)
+./sim.sh omni joy   # WASD の代わりにゲームパッド
+echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
+```
+
+コンテナの中(`ros` で入ったあと)では、`~/ros2_ws` で `./sim.sh omni` のように同じ使い方で起動できます(本体は `ros2_ws/sim.sh`)。
+
+`./dev.sh` の中身は次のコマンドと同じです。
 
 ```bash
 docker compose build dev        # 初回、または package.xml の依存を変えたとき

@@ -4,6 +4,7 @@
 # (大会などで、ほかのチームのロボットと混ざらないように 0 以外の番号にする)
 #   ROS_DOMAIN_ID=42
 #   ROS_STATIC_PEERS=192.168.0.10   # Wi-Fi でマルチキャストが届かないときだけ。相手の IP アドレス
+#   DRIVE=omni                      # Pi の drive でオムニホイールの足回りを使うとき(既定は swerve)
 
 x-ros-network: &ros-network
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
@@ -66,6 +67,7 @@ services:
     profiles: ["robot"]
 
   # 足回り一式(swerve_node + stm_bridge)。Pi で起動し、PC から Wi-Fi で操縦する
+  #   オムニホイールにするときは DRIVE=omni(omni_node + stm_bridge)
   #   docker compose --profile robot up -d drive
   #   USB シリアルなら: STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile robot up -d drive
   # PC では teleop.launch.py(ゲームパッド + rviz2)を起動する(ros2_ws/src/swerve_drive/README.md)
@@ -74,7 +76,7 @@ services:
     network_mode: host
     ipc: host
     restart: unless-stopped
-    command: ros2 launch swerve_drive swerve.launch.py
+    command: ros2 launch ${DRIVE:-swerve}_drive ${DRIVE:-swerve}.launch.py
     environment:
       <<: *ros-network
       STM_INTERFACE: ${STM_INTERFACE:-}         # 空なら bridge.yaml の can_interface(can0)

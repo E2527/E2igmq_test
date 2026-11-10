@@ -1,7 +1,9 @@
 /*
  * モーターの速度制御の計算部分(HAL に依存しないので PC でもテストできる)
  *
- *   enc_speed … エンコーダのカウントの増え方から速度 [rad/s] を求める(ローパスフィルタ付き)
+ *   enc_speed … エンコーダのカウントの増え方から速度 [rad/s] を求める
+ *               直近 ENC_SPEED_WINDOW 回分のカウントの合計で求め(1 回分だと低速で 1 カウントの差が
+ *               大きく出る)、さらにローパスフィルタでなめらかにする
  *   speed_pid … 目標速度と実際の速度から、デューティ比(-max_duty〜max_duty)を求める
  *
  *   duty = kff * 目標 + kp * 誤差 + 積分項
@@ -15,10 +17,20 @@
 
 #include <stdint.h>
 
+/* 速度を求めるのに使う回数。1 ms ごとに呼ぶなら、直近 8 ms のカウントで速度を求める
+ * (例: 1 回転 1440 カウントなら、1 カウントの差は 1 ms だと 4.4 rad/s、8 ms だと 0.55 rad/s) */
+#ifndef ENC_SPEED_WINDOW
+#define ENC_SPEED_WINDOW 8
+#endif
+
 typedef struct {
     float rad_per_count;    /* 2π / (1 回転あたりのカウント数。減速比と 4 逓倍を含める) */
     float alpha;            /* ローパスフィルタの強さ(0〜1。1 でフィルタなし、小さいほどなめらか) */
     float speed;            /* 求めた速度 [rad/s] */
+    /* 内部で使う: 直近のカウントの変化と経過時間 */
+    int32_t window_counts[ENC_SPEED_WINDOW];
+    float window_dt[ENC_SPEED_WINDOW];
+    uint8_t window_index;
 } enc_speed_t;
 
 typedef struct {

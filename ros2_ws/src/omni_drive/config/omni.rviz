@@ -1,0 +1,64 @@
+# rviz2 の表示設定: 上から見た図で、ロボットの位置(odom)と各ホイールの、床を押す向きと速さを表示する
+#   赤い矢印 … 目標、緑の矢印 … 実際(長さは速さ)
+#   画面の上がロボットの前(+x)、左がロボットの左(+y)になるように、視点を -90° 回している(Angle)
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Reference Frame: <Fixed Frame>
+      Cell Size: 0.5
+      Plane Cell Count: 20
+      Color: 160; 160; 164
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Marker Scale: 0.5
+      Show Names: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Wheels
+      Enabled: true
+      Topic:
+        Value: /omni/markers
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Odometry
+      Name: Odometry
+      Enabled: true
+      Keep: 200
+      Topic:
+        Value: /odom
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+      Shape:
+        Value: Arrow
+        Shaft Length: 0.2
+        Shaft Radius: 0.01
+        Head Length: 0.05
+        Head Radius: 0.03
+        Color: 255; 170; 0
+  Global Options:
+    Fixed Frame: odom
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Scale: 150
+      X: 0
+      Y: 0
+      Angle: -1.5708
