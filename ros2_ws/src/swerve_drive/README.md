@@ -59,7 +59,7 @@ source install/setup.bash
 
 ### 1. 実機なしで試す(PC)
 
-ホストで `./sim.sh`(オムニなら `./sim.sh omni`)を実行すると、ビルドから下の起動までを 1 回でやります。コンテナの中で直接起動するときは次のとおりです。
+ホストで `./sim.sh`(オムニなら `./sim.sh omni`)を実行すると、ビルドから下の起動までを 1 回でやります(コンテナの中なら `~/ros2_ws` で同じ `./sim.sh`)。1 つずつ起動するときは次のとおりです。
 
 ```bash
 ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true

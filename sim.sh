@@ -6,25 +6,10 @@
 #   ./sim.sh omni joy   … WASD の代わりにゲームパッドで操縦
 #
 # 起動する前に、変わったところだけ colcon build する(数秒)。Ctrl+C で全部止まる。
+# コンテナの中では、~/ros2_ws で ./sim.sh(同じ使い方)を実行する。
 # どこからでも使えるように、~/.bashrc に alias sim="$HOME/e2igmq_test/sim.sh" を書いておくと便利
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-drive=${1:-swerve}
-case "$drive" in
-    swerve | omni) ;;
-    *)
-        echo "使い方: $0 [swerve|omni] [joy]" >&2
-        exit 1
-        ;;
-esac
-if [ "${2:-}" = "joy" ]; then
-    teleop="joy:=true"
-else
-    teleop="keyboard:=true"
-fi
-
-exec ./dev.sh bash -c "cd ~/ros2_ws \
-    && colcon build --symlink-install --packages-up-to ${drive}_drive \
-    && source install/setup.bash \
-    && ros2 launch ${drive}_drive ${drive}.launch.py sim:=true rviz:=true ${teleop}"
+# 中身はコンテナの中の ros2_ws/sim.sh(コンテナの中では ~/ros2_ws で ./sim.sh omni のように直接使える)
+exec ./dev.sh /root/ros2_ws/sim.sh "$@"

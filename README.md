@@ -98,6 +98,8 @@ echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
 echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
 ```
 
+コンテナの中(`ros` で入ったあと)では、`~/ros2_ws` で `./sim.sh omni` のように同じ使い方で起動できます(本体は `ros2_ws/sim.sh`)。
+
 `./dev.sh` の中身は次のコマンドと同じです。
 
 ```bash
