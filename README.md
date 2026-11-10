@@ -89,7 +89,16 @@ sudo usermod -aG docker $USER     # このあとログアウトしてログイ�
 echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-中身は次のコマンドと同じです。
+足回りのシミュレーション(rviz2 + WASD)は **`./sim.sh`** の 1 つで起動できます。必要なところだけビルドしてから起動します。
+
+```bash
+./sim.sh            # スワーブ(swerve_drive)
+./sim.sh omni       # オムニホイール(omni_drive)
+./sim.sh omni joy   # WASD の代わりにゲームパッド
+echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
+```
+
+`./dev.sh` の中身は次のコマンドと同じです。
 
 ```bash
 docker compose build dev        # 初回、または package.xml の依存を変えたとき
