@@ -1,0 +1,45 @@
+# オムニホイールの足回りの設定。ロボットに合わせて書き換える(単位は m、度、rad/s)
+#
+# 例 1: 4 輪の X 型(下の設定)。四隅に、中心から見て斜め 45° に向けて付ける
+#
+#          前(+x)
+#     front_left ╲   ╱ front_right
+#                 中心
+#     rear_left  ╱   ╲ rear_right
+#
+# 例 2: 3 輪(120° おき)にするときは、次のように書き換える
+#     wheel_names: [front, rear_left, rear_right]
+#     wheel_x: [0.2, -0.1, -0.1]
+#     wheel_y: [0.0, 0.1732, -0.1732]
+#     wheel_direction_deg: [90.0, -150.0, -30.0]
+#     device_ids: [1, 1, 2]
+#     channels: [1, 2, 1]
+#     wheel_sign: [1, 1, 1]
+#
+# wheel_direction_deg … タイヤが「正」に回ったときに、床を押して進む向き(0 が前、反時計回りが正)
+#                       ここでは全部「ロボットが反時計回りに回る向き」にそろえている
+omni_drive:
+  ros__parameters:
+    wheel_names: [front_left, front_right, rear_left, rear_right]
+    wheel_x: [0.25, 0.25, -0.25, -0.25]           # 中心から前に何 m(後ろはマイナス)
+    wheel_y: [0.25, -0.25, 0.25, -0.25]           # 中心から左に何 m(右はマイナス)
+    wheel_direction_deg: [135.0, 45.0, -135.0, -45.0]
+    # どの STM32(ID)の、どのモーター(1 か 2)につないだか。STM32 1 枚でホイール 2 個
+    device_ids: [1, 1, 2, 2]
+    channels: [1, 2, 1, 2]
+    # タイヤが逆に回るなら -1(STM32 を書き換えずに、ここで直せる)
+    wheel_sign: [1, 1, 1, 1]
+    wheel_radius: 0.05                            # タイヤの半径 [m]
+    max_wheel_speed: 25.0                         # タイヤの速さの上限 [rad/s](STM32 のモーターの上限以下に)
+    cmd_timeout_s: 0.5                            # cmd_vel がこれ以上来なければ止まる
+    state_timeout_s: 0.5                          # STM32 の状態がこれ以上来なければオドメトリを止める
+    rate_hz: 50.0
+    odom_frame: odom
+    base_frame: base_link
+    publish_tf: true
+
+# 実機なしで試すときの、STM32 のふりをするノード
+fake_wheels:
+  ros__parameters:
+    boards: [1, 2]                                # 上の device_ids に出てくる ID
+    time_constant: 0.1
