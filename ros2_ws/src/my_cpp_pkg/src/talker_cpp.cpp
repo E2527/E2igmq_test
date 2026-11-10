@@ -10,10 +10,11 @@ using namespace std::chrono_literals;
 class TalkerCpp : public rclcpp::Node
 {
 public:
-  TalkerCpp() : Node("talker_cpp"), count_(0)
+  TalkerCpp()
+  : Node("talker_cpp"), count_(0)
   {
     pub_ = create_publisher<std_msgs::msg::String>("chatter", 10);
-    timer_ = create_wall_timer(500ms, [this]() { on_timer(); });
+    timer_ = create_wall_timer(500ms, [this]() {on_timer();});
   }
 
 private:

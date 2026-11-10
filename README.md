@@ -13,12 +13,82 @@ ROS 2 Jazzy の開発環境を Docker で再現できるようにしています
 | `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
 | `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
 | `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
-| `firmware/stm32_can/` | STM32 側のコード。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
+| `ros2_ws/src/swerve_drive/` | 独立ステアリング(スワーブ)の足回り。`/cmd_vel` → 各モジュール、オドメトリ(詳しくは中の README) |
+| `firmware/stm32_can/` | STM32 側の部品。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
+| `firmware/motor_node_f303k8/` | 上の部品を使った STM32F303K8 用の完成したプロジェクト(`make` でビルド) |
+| `firmware/lib/` | ST の HAL と CMSIS(git サブモジュール。`git submodule update --init` で取得) |
 | `docker/pi/80-can.network` | Pi の `can0` を自動で起動する設定 |
+
+### 新しい PC でのセットアップ
+
+コード・Dockerfile・設定はすべてこのリポジトリに入っているので、新しい PC では **clone してイメージを作り直す** だけで同じ環境になります(古い PC からフォルダをコピーするより確実です)。古い PC に push していない変更があれば、先に `git status` で確認して push しておきます。
+
+**Windows 側(PowerShell)**
+
+```powershell
+wsl --install -d Ubuntu-24.04     # 管理者で。終わったら再起動
+winget install usbipd             # Nucleo の USB を WSL に渡す
+# 管理者で(どの USB ポートに挿しても WSL に渡せるようにする)
+usbipd policy add --effect Allow --operation AutoBind --hardware-id 0483:374b
+```
+
+- STM32 に書き込むなら **STM32CubeProgrammer** も入れます。
+- VS Code を使うなら、拡張機能「WSL」と「Dev Containers」を入れます。
+
+**WSL(Ubuntu)側**
+
+```bash
+# Docker Engine(Docker Desktop は不要)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER     # このあと PowerShell で wsl --shutdown して開き直す
+
+# git
+git config --global user.name "名前"
+git config --global user.email "メールアドレス"
+
+# リポジトリ(WSL のホーム ~ の下に置く)
+git clone https://github.com/e2527/E2igmq_test.git ~/e2igmq_test
+cd ~/e2igmq_test
+git checkout <使うブランチ>
+git submodule update --init       # STM32 の HAL
+
+# イメージを作ってコンテナを起動(MoveIt / Nav2 入りなので初回は 20〜40 分)
+docker compose build dev
+docker compose up -d dev
+docker exec -it ros_dev bash -c "source /opt/ros/jazzy/setup.bash && cd ~/ros2_ws && colcon build --symlink-install"
+```
+
+確認は `docker exec -it ros_dev bash` でコンテナに入り、`ros2 run demo_nodes_cpp talker` と `rviz2` が動けば OK です。
+
+**Linux(Fedora など)の PC の場合**
+
+WSL も usbipd もいりません。USB(`/dev/ttyACM0`)はそのままコンテナから見え、STM32 への書き込みも dev コンテナの中で `make flash` でできます(CubeProgrammer 不要)。
+
+```bash
+# Docker Engine(Fedora 標準の Podman ではなく Docker を使う。compose の設定がそのまま動く)
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER     # このあとログアウトしてログインし直す
+
+# 以降の git clone 〜 docker compose up は上と同じ
+```
+
+- **GUI(rviz2)**:ログインするたびに、ホストで `xhost +local:` を実行してからコンテナで `rviz2` を起動します(コンテナの root に画面への表示を許可する)。
+- **SELinux**:dev コンテナは `security_opt: label=disable` にしてあるので、マウントしたフォルダや `/dev` はそのまま使えます。
+- **USB シリアルがつながらない・すぐ切れる**:ModemManager が `/dev/ttyACM0` を横取りしていることがあります。`sudo systemctl disable --now ModemManager` で止めます(モバイル回線のモデムを使っていなければ不要なサービスです)。
+- **Pi と ROS 2 で通信する**:firewalld が DDS の通信を止めます。Pi とつなぐネットワークを信頼済みにします(例:`sudo firewall-cmd --permanent --zone=trusted --add-source=192.168.0.0/24 && sudo firewall-cmd --reload`。アドレスは自分のネットワークに合わせる)。
 
 ### 開発(WSL)
 
-リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。
+リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。
+
+**いつもの起動は `./dev.sh` の 1 つだけ**です。コンテナが止まっていれば起動して、そのまま中の bash に入ります(Linux では `xhost +local:` も自動で実行)。`./dev.sh rviz2` のように後ろにコマンドを書くと、コンテナでそのコマンドだけ実行します。どこからでも使えるように、`~/.bashrc` に次の 1 行を足しておくと、`ros` と打つだけで入れます。
+
+```bash
+echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
+```
+
+中身は次のコマンドと同じです。
 
 ```bash
 docker compose build dev        # 初回、または package.xml の依存を変えたとき
@@ -35,20 +105,22 @@ source install/setup.bash
 - 止めるときは `docker compose stop dev`、再開は `docker compose start dev`。
 - `network_mode: host` なので、同じネットワークの他マシン(Pi など)と ROS 2 トピックをやり取りできます。
 - `dev` には rviz2 が入っていて、WSLg 経由で Windows に表示できます(コンテナ内で `rviz2`)。
+- `dev` には MoveIt 2(アームの動作計画)も入っています。デモはコンテナ内で `ros2 launch moveit_resources_panda_moveit_config demo.launch.py`。rviz2 の「MotionPlanning」パネルで、ゴールの姿勢を動かして **Plan & Execute** を押すとアームが動きます。自分のアームの設定は `ros2 launch moveit_setup_assistant setup_assistant.launch.py` で作れます。
+- `dev` には Nav2(自律移動)と slam_toolbox(地図づくり)も入っています。シミュレーションはコンテナ内で `ros2 launch nav2_bringup tb3_simulation_launch.py`。rviz2 で **2D Pose Estimate** を押してロボットの位置を地図上でクリック&ドラッグし、**Nav2 Goal** でゴールを指定すると、障害物をよけて走ります。
 
 ### Raspberry Pi(arm64)で使う
 
 Pi では `docker/Dockerfile.pi` の `runtime` イメージを使います(Pi 5 / Pi 400 共通)。
 
 - `ros:jazzy-ros-core` に、`ros2_ws` のビルド結果と実行時の依存(`exec_depend`)だけを載せた軽量版です。rviz2 などの GUI やコンパイラは入りません。
-- root ではなく `ubuntu` ユーザー(UID 1000、`dialout` グループ所属)で動きます。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
+- root ではなく `ubuntu` ユーザー(UID 1000)で動きます。compose の `stm-bridge` は `dialout` グループを足して起動します。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
 - `ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
 
 **方法1: Pi 上で直接ビルド**(いちばん簡単。Pi 側で自動的に arm64 になります)
 
 ```bash
 docker compose build runtime
-STM32_DEVICE=/dev/serial/by-id/usb-STM32...  docker compose --profile robot up -d micro-ros-agent
+docker compose --profile robot up -d drive          # 足回り一式(swerve_drive + stm_bridge)
 docker compose --profile robot run --rm runtime ros2 topic list
 ```
 
@@ -106,12 +178,28 @@ ros2 topic echo stm1/state        # 速度が 0.1 秒ほどで [0.5, -1.0] に�
    docker run -d --name stm-bridge --restart unless-stopped --network host --ipc host \
      robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
    ```
-   リポジトリを Pi に clone している場合は `docker compose --profile robot up -d stm-bridge` でも起動できます。
+   リポジトリを Pi に clone している場合は `docker compose --profile bridge up -d stm-bridge` でも起動できます(足回り一式は `--profile robot up -d drive`)。
 4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
+
+**USB シリアルで動かす**(CAN の部品がないとき。Nucleo なら USB ケーブル 1 本でつながる)
+
+STM32 を `make LINK=uart` でビルドして書き込み、ブリッジの `can_interface` を `serial:/dev/ttyACM0` にします。中身(ID とデータ)は CAN と同じで、トピックもそのままです。
+
+```bash
+ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
+```
+
+Pi で compose を使う場合は、`STM_INTERFACE` で通信の線を切り替えます(`stm-bridge` サービスは `/dev` を共有し、`dialout` グループで動きます)。
+
+```bash
+STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile bridge up -d stm-bridge
+```
+
+PC(WSL)の dev コンテナで使う場合は、先に Windows の USB を WSL に渡します(`firmware/motor_node_f303k8/README.md` の「USB シリアルで PC とつなぐ」)。dev コンテナは `/dev` を共有しているので、`/dev/ttyACM0` がそのまま見えます。
 
 ### micro-ROS agent
 
-`micro-ros-agent` サービスは `microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
+今は STM32 との通信に `stm_bridge` を使っているので、`micro-ros-agent` は `--profile robot` では起動しません(同じ `/dev/ttyACM0` を取り合うため)。使うときは `docker compose --profile micro-ros up -d micro-ros-agent` で起動します。`microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
 
 ### CI
 

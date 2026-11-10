@@ -1,0 +1,89 @@
+"""
+スワーブの足回りを起動する.
+
+    # 実機なしで試す(モジュールのふり + rviz2 で確認 + WASD かゲームパッド)
+    ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true
+    ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
+
+    # 実機(stm_bridge で STM32 × 4 とつなぐ)。PC から Wi-Fi で操縦するときは joy なしで起動し、
+    # PC で teleop.launch.py を起動する
+    ros2 launch swerve_drive swerve.launch.py can_interface:=can0
+
+引数:
+    sim           … true: fake_modules で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
+    joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す(teleop.launch.py)
+    keyboard      … true: WASD で /cmd_vel を出す(keyboard_teleop のウィンドウが開く)
+    rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
+    can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
+                    指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
+
+/cmd_vel を出すものは何でもよい(ゲームパッド、キーボード、Nav2)。自動操縦にするときも、
+このファイルはそのままで、Nav2 が /cmd_vel を出すようにすればよい。
+"""
+
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration
+from launch_ros.actions import Node
+import yaml
+
+
+def _bridge(context):
+    """実機のときの stm_bridge。device_ids は swerve.yaml と同じにする."""
+    share = get_package_share_directory('swerve_drive')
+    with open(os.path.join(share, 'config', 'swerve.yaml'), encoding='utf-8') as f:
+        ids = yaml.safe_load(f)['swerve_drive']['ros__parameters']['device_ids']
+    bridge_config = os.path.join(get_package_share_directory('stm_bridge'), 'config',
+                                 'bridge.yaml')
+    overrides = {'device_ids': ids}
+    interface = LaunchConfiguration('can_interface').perform(context)
+    if interface:
+        overrides['can_interface'] = interface
+    return [Node(
+        package='stm_bridge', executable='bridge', name='stm_bridge',
+        parameters=[bridge_config, overrides], output='screen',
+        condition=UnlessCondition(LaunchConfiguration('sim')))]
+
+
+def generate_launch_description():
+    share = get_package_share_directory('swerve_drive')
+    swerve_config = os.path.join(share, 'config', 'swerve.yaml')
+    sim = LaunchConfiguration('sim')
+    joy = LaunchConfiguration('joy')
+    rviz = LaunchConfiguration('rviz')
+
+    return LaunchDescription([
+        DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('joy', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('keyboard', default_value='false'),
+        DeclareLaunchArgument(
+            'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
+
+        # 足回りの計算(/cmd_vel → 各モジュール、各モジュール → /odom)
+        Node(package='swerve_drive', executable='swerve_node', name='swerve_drive',
+             parameters=[swerve_config], output='screen'),
+
+        # 実機のふり / 実機とつなぐ
+        Node(package='swerve_drive', executable='fake_modules', name='fake_modules',
+             parameters=[swerve_config], output='screen', condition=IfCondition(sim)),
+        OpaqueFunction(function=_bridge),
+
+        # ゲームパッド → /cmd_vel(PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する)
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'teleop.launch.py')),
+            launch_arguments={'rviz': 'false'}.items(),
+            condition=IfCondition(joy)),
+        Node(package='swerve_drive', executable='keyboard_teleop', name='keyboard_teleop',
+             condition=IfCondition(LaunchConfiguration('keyboard'))),
+
+        # 表示(PC で)
+        Node(package='rviz2', executable='rviz2', name='rviz2',
+             arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],
+             condition=IfCondition(rviz)),
+    ])

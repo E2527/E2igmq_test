@@ -31,18 +31,28 @@ void motor_start(motor_t *m)
     m->last_count = (uint16_t)__HAL_TIM_GET_COUNTER(m->enc_tim);
 }
 
-float motor_update(motor_t *m, float target, bool enabled, float dt)
+float motor_measure(motor_t *m, float dt)
 {
     uint16_t now = (uint16_t)__HAL_TIM_GET_COUNTER(m->enc_tim);
     int32_t delta = enc_delta16(now, m->last_count) * m->enc_sign;
     m->last_count = now;
-    float measured = enc_speed_update(&m->speed, delta, dt);
+    m->delta = (float)delta * m->speed.rad_per_count;
+    return enc_speed_update(&m->speed, delta, dt);
+}
 
+void motor_control(motor_t *m, float target, bool enabled, float dt)
+{
     if (!enabled) {
         speed_pid_reset(&m->pid);
         motor_set_duty(m, 0.0f);
-        return measured;
+        return;
     }
-    motor_set_duty(m, speed_pid_update(&m->pid, target, measured, dt));
+    motor_set_duty(m, speed_pid_update(&m->pid, target, m->speed.speed, dt));
+}
+
+float motor_update(motor_t *m, float target, bool enabled, float dt)
+{
+    float measured = motor_measure(m, dt);
+    motor_control(m, target, enabled, dt);
     return measured;
 }

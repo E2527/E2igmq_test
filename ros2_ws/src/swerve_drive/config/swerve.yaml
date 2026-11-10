@@ -1,0 +1,31 @@
+# スワーブの足回りの設定。ロボットに合わせて書き換える(単位は m、rad、rad/s)
+#
+#   上から見た図(x が前、y が左):
+#
+#          前(+x)
+#     front_left ── front_right
+#         |    base_link   |       ← ロボットの中心
+#     rear_left  ── rear_right
+#
+swerve_drive:
+  ros__parameters:
+    module_names: [front_left, front_right, rear_left, rear_right]
+    device_ids:   [1, 2, 3, 4]              # 各モジュールの STM32 の ID(stm<ID>/command)
+    module_x:     [0.25, 0.25, -0.25, -0.25]  # 中心から前に何 m(後ろはマイナス)
+    module_y:     [0.25, -0.25, 0.25, -0.25]  # 中心から左に何 m(右はマイナス)
+    wheel_radius: 0.05                      # タイヤの半径 [m]
+    max_wheel_speed: 40.0                   # タイヤの速さの上限 [rad/s](40 rad/s × 0.05 m = 2 m/s)
+    cosine_scale: false                     # 向きが合うまでタイヤを遅くする(STM32 の APP=swerve がやるので false)
+    cmd_timeout_s: 0.5                      # cmd_vel がこれ以上来なければ止まる
+    state_timeout_s: 0.5                    # モジュールの状態がこれ以上来なければオドメトリを止める
+    rate_hz: 50.0                           # 指令を出す周期
+    odom_frame: odom
+    base_frame: base_link
+    publish_tf: true                        # odom → base_link の TF を出す(robot_localization を使うときは false)
+
+# 実機なしで試すときの、モジュールのふりをするノード
+fake_modules:
+  ros__parameters:
+    device_ids: [1, 2, 3, 4]
+    steer_speed: 6.0                        # 向きを変える最大の速さ [rad/s]
+    wheel_time_constant: 0.1                # タイヤの速さが目標に近づく速さ [s]

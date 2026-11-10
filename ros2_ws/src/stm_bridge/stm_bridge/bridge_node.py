@@ -11,6 +11,7 @@ command が command_timeout_s 以上届かないときは空の指令(= 止ま�
 状態は STM32 が自分の周期で送ってくるので、届いたらそのまま publish する。
 """
 
+import math
 import threading
 import time
 
@@ -58,6 +59,12 @@ class StmBridge(Node):
             f'can_interface={self.interface} device_ids={self.device_ids} rate={rate_hz}Hz')
 
     def on_command(self, dev_id, msg):
+        if not all(math.isfinite(v) for v in msg.data):
+            # NaN や inf を送ると、STM32 の PID が全力で回したり止まらなくなったりする
+            self.get_logger().error(
+                f'stm{dev_id}/command に NaN か inf が入っているので無視します: {list(msg.data)}',
+                throttle_duration_sec=1.0)
+            return
         try:
             data = protocol.pack_floats(msg.data)
         except ValueError as e:
@@ -71,10 +78,11 @@ class StmBridge(Node):
             return None
         try:
             bus = can_bus.open_bus(self.interface, protocol.STATE_FILTER)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             self.next_open_time = now + 1.0
             self.get_logger().warn(
-                f'{self.interface} を開けません: {e}(Pi で can0 が up になっているか確認してください)',
+                f'{self.interface} を開けません: {e}'
+                f'(CAN なら can0 が up か、シリアルなら USB がつながっているか確認してください)',
                 throttle_duration_sec=5.0)
             return None
         self.get_logger().info(f'{self.interface} を開きました')
