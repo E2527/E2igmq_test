@@ -145,6 +145,27 @@ static void test_enc_delta16(void)
     CHECK(enc_delta16(1000, 1000) == 0);
 }
 
+static void test_enc_speed_window(void)
+{
+    /* 1 ms ごとに 0 カウントと 1 カウントが交互に来る低速(1 回転 1440 カウントなら約 2.18 rad/s) */
+    enc_speed_t s;
+    enc_speed_init(&s, 1440.0f, 1.0f);                            /* フィルタなしで、窓の効果だけを見る */
+    const float expect = 0.5f * 6.28318530718f / 1440.0f / 0.001f;
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < 100; i++) {
+        float v = enc_speed_update(&s, i % 2, 0.001f);
+        if (i >= ENC_SPEED_WINDOW) {
+            lo = v < lo ? v : lo;
+            hi = v > hi ? v : hi;
+        }
+    }
+    CHECK(fabsf(lo - expect) < 1e-3f && fabsf(hi - expect) < 1e-3f);   /* 1 回分だと 0 と 4.4 を行き来する */
+
+    enc_speed_init(&s, 1440.0f, 1.0f);
+    CHECK(fabsf(enc_speed_update(&s, 2, 0.001f) - 2.0f * expect * 2.0f) < 1e-3f);  /* 起動直後も届いた分で求める */
+    CHECK(enc_speed_update(&s, 0, 0.0f) == s.speed);              /* dt = 0 は無視 */
+}
+
 static void test_pid_saturation_and_windup(void)
 {
     speed_pid_t p = {.kp = 0.05f, .ki = 1.0f, .kff = 1.0f / 30.0f, .max_duty = 0.8f};
@@ -366,6 +387,7 @@ int main(void)
         {"can_node", test_can_node},
         {"uart_node", test_uart_node},
         {"enc_delta16", test_enc_delta16},
+        {"enc_speed_window", test_enc_speed_window},
         {"pid_saturation_and_windup", test_pid_saturation_and_windup},
         {"motor_closed_loop", test_motor_closed_loop},
         {"motor_reversed_wiring", test_motor_reversed_wiring},

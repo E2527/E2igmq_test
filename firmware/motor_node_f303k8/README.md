@@ -187,6 +187,15 @@ Pi ──[目標の向き rad, タイヤの速さ rad/s]──▶ STM32 ─┬�
    - 90° より多く・少なく回るなら、`APP_SWERVE_STEER_RATIO` の大きさ(ギア比)を見直します。
 3. 最後に、通常のビルド(`make APP=swerve NODE_ID=1` など)を書き込み、Pi で `swerve_drive` を起動して操縦します。
 
+## CAN を実機で使う前に(クロックの精度)
+
+今は STM32 の**内蔵クロック(HSI)**で動かしています。HSI の精度は常温で ±1% くらいですが、今の CAN の設定(1 Mbps、`main.c` の `MX_CAN_Init`)で許されるずれは**約 0.3%** しかありません。このままだと、**CAN の実機で通信エラーが出やすい**と考えられます(USB シリアルは許されるずれが大きいので、今の動作には影響しません)。
+
+CAN を使う前に、どちらかにします。
+
+- **外部の正確なクロック(HSE)を使う**:Nucleo-F303K8 は、ST-LINK の 8 MHz を STM32 の OSC_IN に入れられます。UM1956(Nucleo-32 のユーザーマニュアル)で、そのためのはんだブリッジがつながっているかを確認し、`SystemClock_Config` を HSE(バイパス)に変えます。自作基板なら水晶を載せます。
+- **応急処置**:`MX_CAN_Init` の `TimeSeg1 = 11`、`TimeSeg2 = 4`、`SyncJumpWidth = 4` にすると、許されるずれが約 1% まで広がります(サンプル点 75%)。HSI のままでも動きやすくなりますが、温度が変わると外れることがあります。
+
 ## LED の意味
 
 | 点滅 | 状態 |
@@ -201,6 +210,7 @@ Pi ──[目標の向き rad, タイヤの速さ rad/s]──▶ STM32 ─┬�
 |---|---|
 | `APP_NODE_ID` | 基板の ID。`make NODE_ID=2` でも変えられる。Pi の `bridge.yaml` の `device_ids` と合わせる |
 | `APP_COUNTS_PER_REV` | ホイール 1 回転あたりのカウント数 = エンコーダの PPR × 4 × 減速比 |
+| `APP_SPEED_FILTER` | 速度のなめらかさ(0〜1)。速度は直近 8 ms のカウントから求め(`ENC_SPEED_WINDOW`)、さらにこれでなめらかにする |
 | `APP_KFF` / `APP_KP` / `APP_KI` | 速度制御のゲイン |
 | `APP_MOTOR1_DIR_SIGN` など | 回る向き・数える向きが逆なら -1 |
 

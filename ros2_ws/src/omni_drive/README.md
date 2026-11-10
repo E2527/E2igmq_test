@@ -76,4 +76,4 @@ Pi で動かして PC から Wi-Fi で操縦するときは、`.env` に `DRIVE=
 | `wheel_radius` | タイヤの半径 [m] |
 | `max_wheel_speed` | タイヤの速さの上限 [rad/s]。超えそうなときは、全部を同じ割合で遅くします |
 
-`device_ids` を変えたら、`fake_wheels` の `boards` も同じ ID にそろえます。変えたら `colcon build` し直してから起動します。
+変えたら `colcon build` し直してから起動します(`fake_wheels` と `stm_bridge` の ID は、起動ファイルが `device_ids` から自動で決めます)。

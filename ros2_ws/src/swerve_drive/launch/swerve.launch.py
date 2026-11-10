@@ -26,34 +26,39 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
 
 
-def _bridge(context):
-    """実機のときの stm_bridge。device_ids は swerve.yaml と同じにする."""
+def _modules(context):
+    """
+    STM32 の側: sim なら fake_modules、実機なら stm_bridge.
+
+    どちらも ID は swerve.yaml の device_ids を使う(1 か所だけ書けばよい)。
+    """
     share = get_package_share_directory('swerve_drive')
-    with open(os.path.join(share, 'config', 'swerve.yaml'), encoding='utf-8') as f:
+    config = os.path.join(share, 'config', 'swerve.yaml')
+    with open(config, encoding='utf-8') as f:
         ids = yaml.safe_load(f)['swerve_drive']['ros__parameters']['device_ids']
+    if IfCondition(LaunchConfiguration('sim')).evaluate(context):
+        return [Node(package='swerve_drive', executable='fake_modules', name='fake_modules',
+                     parameters=[config, {'device_ids': ids}], output='screen')]
     bridge_config = os.path.join(get_package_share_directory('stm_bridge'), 'config',
                                  'bridge.yaml')
     overrides = {'device_ids': ids}
     interface = LaunchConfiguration('can_interface').perform(context)
     if interface:
         overrides['can_interface'] = interface
-    return [Node(
-        package='stm_bridge', executable='bridge', name='stm_bridge',
-        parameters=[bridge_config, overrides], output='screen',
-        condition=UnlessCondition(LaunchConfiguration('sim')))]
+    return [Node(package='stm_bridge', executable='bridge', name='stm_bridge',
+                 parameters=[bridge_config, overrides], output='screen')]
 
 
 def generate_launch_description():
     share = get_package_share_directory('swerve_drive')
     swerve_config = os.path.join(share, 'config', 'swerve.yaml')
-    sim = LaunchConfiguration('sim')
     joy = LaunchConfiguration('joy')
     rviz = LaunchConfiguration('rviz')
 
@@ -70,9 +75,7 @@ def generate_launch_description():
              parameters=[swerve_config], output='screen'),
 
         # 実機のふり / 実機とつなぐ
-        Node(package='swerve_drive', executable='fake_modules', name='fake_modules',
-             parameters=[swerve_config], output='screen', condition=IfCondition(sim)),
-        OpaqueFunction(function=_bridge),
+        OpaqueFunction(function=_modules),
 
         # ゲームパッド → /cmd_vel(PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する)
         IncludeLaunchDescription(

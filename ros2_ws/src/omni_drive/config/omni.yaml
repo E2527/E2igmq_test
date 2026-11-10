@@ -39,7 +39,7 @@ omni_drive:
     publish_tf: true
 
 # 実機なしで試すときの、STM32 のふりをするノード
+# (boards は、起動ファイルが上の device_ids から決めて渡すので、書かなくてよい)
 fake_wheels:
   ros__parameters:
-    boards: [1, 2]                                # 上の device_ids に出てくる ID
     time_constant: 0.1

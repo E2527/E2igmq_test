@@ -87,7 +87,9 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_Init(EXT_LED_GPIO_Port, &g);
 }
 
-/* 1 Mbps: 32 MHz / Prescaler 2 / (1 + BS1 13 + BS2 2) = 1 MHz、サンプル点 87.5 % */
+/* 1 Mbps: 32 MHz / Prescaler 2 / (1 + BS1 13 + BS2 2) = 1 MHz、サンプル点 87.5 %
+ * 注意: クロックが HSI(精度 ±1% くらい)のままだと、この設定で許されるずれ(約 0.3%)を超えることがある。
+ * CAN を実機で使う前に README の「CAN を実機で使う前に」を読む */
 static void MX_CAN_Init(void)
 {
     hcan.Instance = CAN;
