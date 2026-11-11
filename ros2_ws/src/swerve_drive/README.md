@@ -8,11 +8,11 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 
 ```
  ゲームパッド ─ joy ─ teleop_twist_joy ─┐
- キーボード(WASD)─ keyboard_teleop ─────┼─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
+ キーボード(WASD)─ robot_console ───────┼─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
  Nav2(自動操縦、これから)────────────┘    (vx, vy, ω)      │          [向き, タイヤの速さ]   (CAN / USB シリアル)
                                                             │
                          /odom、TF(odom → base_link) ◀─────┴─── stm1〜4/state ◀───────────────────────────┘
-                         /swerve/markers(rviz2 の矢印)              [今の向き, 今のタイヤの速さ]
+                         /swerve/markers(コンソールや rviz2 の矢印)   [今の向き, 今のタイヤの速さ]
 ```
 
 - **操縦のしかたを変えても、`swerve_node` はそのまま**です。`/cmd_vel` を出すものを、ゲームパッド・キーボード・Nav2 のどれにするかだけです。
@@ -38,10 +38,11 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 |---|---|
 | `swerve_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `swerve_drive/swerve_node.py` | ROS 2 のノード。`/cmd_vel` を受け取って指令を出し、`/odom` と TF と矢印を出す |
-| `swerve_drive/robot_dashboard.py` | 状態ダッシュボード: `/diagnostics` の一覧(各 STM32 とつながっているか、指令が届いているか)と**停止ボタン** |
+| `swerve_drive/robot_console.py` | **ロボットコンソール**: WASD の操縦、速さ、軌跡、状態、停止ボタンを 1 つにまとめたウィンドウ(ROS とのやり取りとウィンドウ) |
+| `swerve_drive/console_state.py` | コンソールに表示するデータ(ROS にも画面にも依存しない。テストあり) |
+| `swerve_drive/console_theme.py` / `console_widgets.py` | コンソールの色・フォントと、各カードの絵(PyQt5) |
+| `swerve_drive/teleop_keys.py` | 押しているキー → 速さの計算 |
 | `swerve_drive/robot_status.py` | `/diagnostics` と停止ボタン(`/drive_stop`)の共通の部品 |
-| `swerve_drive/drive_monitor.py` | 速さモニター: 指令の速さ(`/cmd_vel`)と実際の速さ(`/odom`)を、数字と棒グラフで並べて表示する |
-| `swerve_drive/keyboard_teleop.py` | WASD で操縦するウィンドウ(押している間だけ動く。キーの計算は `teleop_keys.py`) |
 | `swerve_drive/firmware_modules.py` | 実機の代わりに、**STM32 のファームウェアをそのまま動かして**モジュールのふりをする(`firmware:=true`) |
 | `swerve_drive/firmware_sim.py` | `firmware/sim/firmware_sim.c` とファームウェアの部品を gcc でビルドして呼ぶ |
 | `swerve_drive/fake_modules.py` | 実機の代わりに、モジュールのふりをする(向きはゆっくり回り、タイヤは少し遅れて追いつく) |
@@ -49,7 +50,7 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 | `config/joy.yaml` | ゲームパッドのボタンとスティックの割り当て |
 | `config/swerve.rviz` | rviz2 の表示設定(上から見た図) |
 | `launch/swerve.launch.py` | ロボット側(足回り一式)を起動する。`sim:=true` で実機なしでも |
-| `launch/teleop.launch.py` | PC 側(ゲームパッド + rviz2)を起動する |
+| `launch/teleop.launch.py` | PC 側(ロボットコンソール + ゲームパッド)を起動する |
 | `test/test_kinematics.py` | 計算のテスト(`colcon test` で実行される) |
 
 ## 使い方
@@ -67,13 +68,38 @@ source install/setup.bash
 ホストで `./sim.sh`(オムニなら `./sim.sh omni`)を実行すると、ビルドから下の起動までを 1 回でやります(コンテナの中なら `~/ros2_ws` で同じ `./sim.sh`)。1 つずつ起動するときは次のとおりです。
 
 ```bash
-ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true
+ros2 launch swerve_drive swerve.launch.py sim:=true console:=true
 ```
 
-rviz2 に、上から見たロボットが出ます。**赤い矢印が目標の向き、緑の矢印が実際の向き**(長さは速さ)です。
-画面の上がロボットの前(+x)、左がロボットの左(+y)です(起動したときの向き。odom の座標で表示しているので、ロボットが回ると画面の上とロボットの前はずれていきます)。
+**ロボットコンソール**(`robot_console`)が開きます。操縦・速さ・状態・停止を 1 つにまとめたウィンドウです。
 
-「WASD で操縦」という小さなウィンドウも開きます。**このウィンドウを選んだまま**、キーを押している間だけ動きます。
+![ロボットコンソール](docs/robot_console.png)
+
+(上の画像は、表示の確認用のデータを入れたときのものです)
+
+```
+┌ ROBOT CONSOLE  [SWERVE] ─────────────── [● すべて OK] ─ [■ 停止(Esc)] ┐
+│ ロボット               │ 速さ               │ 軌跡                     │
+│  上から見た図          │  前後・左右・回転    │  走った道すじ(地図)      │
+│  (画面の上が前)       │  指令と実際         │                          │
+│                        ├────────────────────┤                          │
+│                        │ 操縦                │                          │
+│                        │  Q W E / A S D      │                          │
+├────────────────────────┴────────────────────┴──────────────────────────┤
+│ 状態  ● stm_bridge: stm1  通信しています  受信 100 回/秒  …             │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+| カード | 中身 |
+|---|---|
+| **ロボット** | 上から見た図(画面の上がロボットの前)。各モジュールの**実際の向き(緑の矢印)**と**目標(白い点線)**、矢印の長さは速さ。中心の水色の矢印は実際に進んでいる向き、紫の弧は回転。左上に速さ、右上に向き |
+| **速さ** | 前後・左右・回転ごとに、**実際の速さ(バーと大きな数字)**と**指令の速さ(白い印と小さな数字)**。実際が指令の 8 割に届かないと、オレンジ色(頭打ち)になる(`./sim.sh fw` だと STM32 の上限も反映される) |
+| **操縦** | 下の表のキー。押しているキーが光る。画面のキーをマウスで押してもよい |
+| **軌跡** | 走った道すじ(起動したときの前が画面の上)。「消す」で消せる |
+| **状態** | `/diagnostics` の一覧(下の「ロボットの状態」) |
+| **右上** | 全体の状態(すべて OK / 注意 / エラー ○ 件 / 停止中)と、**停止ボタン** |
+
+**操縦**:このウィンドウを選んだまま、キーを押している間だけ動きます。
 
 | キー | 動き |
 |---|---|
@@ -81,20 +107,21 @@ rviz2 に、上から見たロボットが出ます。**赤い矢印が目標の
 | A / D | 左 / 右(向きを変えずに横に動く) |
 | Q / E | 左回り / 右回り |
 | Shift | 速くする(2 倍) |
-
-**速さモニター**のウィンドウも開きます。前後・左右・回転ごとに、指令の速さ(薄い色)と実際の速さ(濃い色)が並び、実際が指令より大きく遅いと「頭打ち」と出ます(タイヤやモーターの上限に当たっているとき。`./sim.sh fw` だと STM32 の上限も反映される)。PC から Wi-Fi で操縦するときの `teleop.launch.py` でも開きます(`monitor:=false` で消せる)。
+| Esc / スペース | 停止(停止ボタンと同じ) |
 
 W と D を同時に押すと斜めに進みます。ほかのウィンドウを選ぶと止まります。速さは `linear_speed` / `angular_speed` パラメータで変えられます。
 
-ゲームパッドがあれば、`joy:=true` を付けると使えます(LB を押している間だけ動きます。ボタンの割り当ては `config/joy.yaml`)。
+ゲームパッドがあれば、`joy:=true` を付けると使えます(LB を押している間だけ動きます。ボタンの割り当ては `config/joy.yaml`)。rviz2 も見たいときは `rviz:=true` を付けます(`./sim.sh joy rviz`)。
 
 ```bash
-ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
+ros2 launch swerve_drive swerve.launch.py sim:=true console:=true joy:=true rviz:=true
 ```
 
-### ロボットの状態を見る(状態ダッシュボード、`/diagnostics`)
+コンソールの画面は PyQt5 で描いています(dev イメージに入っている)。色やフォントを変えたいときは `console_theme.py` を見てください。
 
-stm_bridge と足回りのノードは、自分の状態を **`/diagnostics`**(ROS 2 の共通の決まり)に 1 秒ごとに出しています。
+### ロボットの状態(`/diagnostics` と停止ボタン)
+
+stm_bridge と足回りのノードは、自分の状態を **`/diagnostics`**(ROS 2 の共通の決まり)に 1 秒ごとに出しています。コンソールの「状態」のカードは、これを一覧で表示します。
 
 | 項目 | OK | 注意 / エラー |
 |---|---|---|
@@ -103,10 +130,8 @@ stm_bridge と足回りのノードは、自分の状態を **`/diagnostics`**(R
 | `swerve_drive: 指令` | `/cmd_vel` が届いている、または指令なし | 停止ボタンで止めている |
 | `swerve_drive: モジュール` | 全部の状態が届いている | どれかが届いていない |
 
-**状態ダッシュボード**(`robot_dashboard`)は、これを一覧で表示します。`./sim.sh` と、PC から Wi-Fi で操縦するときの `teleop.launch.py` で自動的に開きます(`dashboard:=false` で消せる)。単独で開くときは `ros2 run swerve_drive robot_dashboard` です。
-
 - しばらく届かない項目は灰色で「届いていない」と出ます(そのノードが止まったか、Wi-Fi が切れた)。
-- **停止ボタン**(または Esc キー)を押すと、足回りは `/cmd_vel` を無視して止まります。「▶ 再開」を押すまで止まったままです。停止の状態は、あとから起動したノードにも届きます。
+- **停止ボタン**(または Esc / スペースキー)を押すと、足回りは `/cmd_vel` を無視して止まります。「▶ 再開」を押すまで止まったままです。コンソールをあとから開いても、足回りが止まっていれば「停止中」と出ます。
 - **停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ(モーターの電源を切るもの)は、必ず別に付けてください。**
 
 同じ `/diagnostics` は、ROS 2 標準の **rqt_robot_monitor** でも見られます(`ros2 run rqt_robot_monitor rqt_robot_monitor`)。
@@ -115,7 +140,7 @@ stm_bridge と足回りのノードは、自分の状態を **`/diagnostics`**(R
 
 ```bash
 ./sim.sh fw                       # ホストで(コンテナの中なら ~/ros2_ws で同じ)
-ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true rviz:=true keyboard:=true   # 1 つずつ起動するとき
+ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true console:=true   # 1 つずつ起動するとき
 ```
 
 `fake_modules`(簡単な真似)の代わりに `firmware_modules` を使います。
@@ -136,8 +161,8 @@ swerve_node(本物)─ [向き, 速さ] ─▶ ファームウェアの計算(�
 > **STM32 には、スワーブ用のファームウェア(`make APP=swerve NODE_ID=1〜4`)を書き込みます**(`firmware/motor_node_f303k8/README.md` の「スワーブのモジュール」)。モーター 2 個の速度制御用(`APP` なし)を書き込んだ基板に対して `drive` / `swerve.launch.py` を起動しないでください。`[向き, タイヤの速さ]` の「向き」が、モーター 1 の目標速度として使われてしまいます。
 
 ```
-【PC】ゲームパッド ─ teleop.launch.py ── /cmd_vel ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
-【PC】rviz2 ◀──────────────── /odom、TF、矢印 ──(Wi-Fi)──────── 【Pi】
+【PC】コンソール(WASD)/ ゲームパッド ── /cmd_vel、停止 ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
+【PC】コンソール ◀───────── /odom、矢印、状態(/diagnostics)──(Wi-Fi)──── 【Pi】
 ```
 
 **① PC と Pi を同じ Wi-Fi につなぎ、ROS_DOMAIN_ID をそろえる**(最初に 1 回だけ)
@@ -158,14 +183,14 @@ STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile robot up -d drive    
 docker compose logs -f drive                                                    # ログを見る
 ```
 
-**③ PC でゲームパッドと rviz2 を起動する**(ゲームパッドは PC に USB か Bluetooth でつなぐ)
+**③ PC でロボットコンソールとゲームパッドを起動する**(ゲームパッドは PC に USB か Bluetooth でつなぐ)
 
 ```bash
-ros2 launch swerve_drive teleop.launch.py
-ros2 launch swerve_drive teleop.launch.py joy:=false keyboard:=true    # WASD で操縦するとき
+ros2 launch swerve_drive teleop.launch.py              # コンソール + ゲームパッド
+ros2 launch swerve_drive teleop.launch.py joy:=false   # コンソールだけ(WASD で操縦)
 ```
 
-**LB を押しながら**左スティックで移動、右スティックで回転します。rviz2 に Pi から届いたオドメトリと矢印が出れば、Wi-Fi の通信もできています。
+ゲームパッドは、**LB を押しながら**左スティックで移動、右スティックで回転します。コンソールの「状態」に Pi の `stm_bridge` や足回りの項目が並び、「ロボット」に矢印が出れば、Wi-Fi の通信もできています。
 
 **最初はタイヤを浮かせて**、少しずつ試してください。
 

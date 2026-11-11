@@ -126,15 +126,19 @@ class SwerveNode(Node):
         """指令とモジュールの状態を /diagnostics に出す(1 秒ごと)."""
         now = time.monotonic()
         st = robot_status
+        # stopped は、コンソールが「停止中か」を知るための値(true / false)
+        stopped = 'true' if self.stopped else 'false'
         if self.stopped:
-            cmd = st.make_status('swerve_drive: 指令', st.WARN, '停止ボタンで止めています')
+            cmd = st.make_status('swerve_drive: 指令', st.WARN, '停止ボタンで止めています',
+                                 stopped=stopped)
         elif self.cmd_time is not None and now - self.cmd_time <= self.cmd_timeout_s:
             vx, vy, omega = self.cmd
             cmd = st.make_status('swerve_drive: 指令', st.OK, '/cmd_vel が届いています',
                                  前後=f'{vx:+.2f} m/s', 左右=f'{vy:+.2f} m/s',
-                                 回転=f'{omega:+.2f} rad/s')
+                                 回転=f'{omega:+.2f} rad/s', stopped=stopped)
         else:
-            cmd = st.make_status('swerve_drive: 指令', st.OK, '指令なし(止まっています)')
+            cmd = st.make_status('swerve_drive: 指令', st.OK, '指令なし(止まっています)',
+                                 stopped=stopped)
         late = self.late_devices(now)
         if late:
             parts = st.make_status('swerve_drive: モジュール', st.ERROR,

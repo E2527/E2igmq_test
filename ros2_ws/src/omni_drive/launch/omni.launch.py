@@ -1,10 +1,10 @@
 """
 オムニホイールの足回りを起動する.
 
-    # 実機なしで試す(STM32 のふり + rviz2 で確認 + WASD かゲームパッド)
-    ros2 launch omni_drive omni.launch.py sim:=true rviz:=true keyboard:=true
+    # 実機なしで試す(STM32 のふり + ロボットコンソール。WASD で操縦)
+    ros2 launch omni_drive omni.launch.py sim:=true console:=true
     # STM32 のファームウェア(速度の PID)まで含めて試す
-    ros2 launch omni_drive omni.launch.py sim:=true firmware:=true rviz:=true keyboard:=true
+    ros2 launch omni_drive omni.launch.py sim:=true firmware:=true console:=true
 
     # 実機(stm_bridge で STM32 とつなぐ。STM32 はモーター 2 個の速度制御の通常版)
     ros2 launch omni_drive omni.launch.py can_interface:=serial:/dev/ttyACM0
@@ -13,10 +13,9 @@
     sim           … true: fake_wheels で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
     firmware      … true(sim のとき): fake_wheels の代わりに、STM32 のファームウェアをそのまま動かす
                     firmware_wheels を使う(app_config.h のゲインが動きに出る)
+    console       … true: ロボットコンソール(swerve_drive の robot_console)を開く。WASD の操縦、
+                    速さ、軌跡、状態、停止ボタンが 1 つのウィンドウにまとまっている(PC 用)
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す
-    keyboard      … true: WASD で /cmd_vel を出す(swerve_drive の keyboard_teleop)
-    monitor       … true: 指令の速さと実際の速さを並べて表示する(drive_monitor)
-    dashboard     … true: 状態ダッシュボード(/diagnostics の一覧と停止ボタン、robot_dashboard)
     rviz          … true: rviz2 でオドメトリと各ホイールの矢印を表示する(PC 用)
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
@@ -71,10 +70,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('firmware', default_value='false'),
+        DeclareLaunchArgument('console', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
-        DeclareLaunchArgument('keyboard', default_value='false'),
-        DeclareLaunchArgument('monitor', default_value='false'),
-        DeclareLaunchArgument('dashboard', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
@@ -86,21 +83,11 @@ def generate_launch_description():
         # 実機のふり / 実機とつなぐ
         OpaqueFunction(function=_boards),
 
-        # 操縦(swerve_drive と共通)
+        # 操縦と表示(swerve_drive と共通。PC で)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(teleop),
-            launch_arguments={'rviz': 'false', 'monitor': 'false', 'dashboard': 'false'}.items(),
-            condition=IfCondition(LaunchConfiguration('joy'))),
-        Node(package='swerve_drive', executable='keyboard_teleop', name='keyboard_teleop',
-             condition=IfCondition(LaunchConfiguration('keyboard'))),
-
-        # 表示(PC で)
-        # 指令の速さと実際の速さを並べて表示する(速さモニター)
-        Node(package='swerve_drive', executable='drive_monitor', name='drive_monitor',
-             condition=IfCondition(LaunchConfiguration('monitor'))),
-        # 状態ダッシュボード(/diagnostics の一覧と停止ボタン)
-        Node(package='swerve_drive', executable='robot_dashboard', name='robot_dashboard',
-             condition=IfCondition(LaunchConfiguration('dashboard'))),
+            launch_arguments={'console': LaunchConfiguration('console'),
+                              'joy': LaunchConfiguration('joy'), 'rviz': 'false'}.items()),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'omni.rviz')],
              condition=IfCondition(LaunchConfiguration('rviz'))),

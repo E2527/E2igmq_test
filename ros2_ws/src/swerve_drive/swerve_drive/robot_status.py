@@ -2,7 +2,7 @@
 ロボットの状態を知らせるための共通の部品(足回りのノードとダッシュボードで使う).
 
     /diagnostics(diagnostic_msgs/DiagnosticArray)… ROS 2 の共通の決まり。各ノードが自分の状態を
-        「OK / 注意(WARN)/ エラー(ERROR)」と中身で出す。rqt_robot_monitor や robot_dashboard で見られる
+        「OK / 注意(WARN)/ エラー(ERROR)」と中身で出す。rqt_robot_monitor や robot_console で見られる
     /drive_stop(std_msgs/Bool)… 停止ボタン。true の間、足回りは /cmd_vel を無視して止まる
         最後の値を覚えておく設定(transient local)なので、あとから起動したノードにも届く
 """

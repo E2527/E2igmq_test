@@ -37,10 +37,13 @@ CMD ["bash"]
 # ---- dev: 開発用(ソースはボリュームでマウントする) ----
 FROM base AS dev
 # GUI・デモ用と、STM32 のビルド・書き込み用(firmware/motor_node_f303k8、make flash は openocd)。
+# python3-pyqt5 と fonts-noto-cjk は、ロボットコンソール(swerve_drive の robot_console)の画面と日本語の表示用。
 # ソースより先に入れて、src を変えても再インストールされないようにする
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rviz2 \
         ros-${ROS_DISTRO}-rqt-robot-monitor \
+        python3-pyqt5 \
+        fonts-noto-cjk \
         ros-${ROS_DISTRO}-demo-nodes-cpp \
         ros-${ROS_DISTRO}-demo-nodes-py \
         gcc-arm-none-eabi \
