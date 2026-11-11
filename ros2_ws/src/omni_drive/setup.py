@@ -30,6 +30,7 @@ setup(
         'console_scripts': [
             'omni_node = omni_drive.omni_node:main',
             'fake_wheels = omni_drive.fake_wheels:main',
+            'firmware_wheels = omni_drive.firmware_wheels:main',
         ],
     },
 )

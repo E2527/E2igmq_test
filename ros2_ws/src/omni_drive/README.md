@@ -23,6 +23,7 @@
 |---|---|
 | `omni_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `omni_drive/omni_node.py` | ROS 2 のノード。`/cmd_vel` → 各 STM32 の 2 個のモーター、実際の速さ → `/odom` と TF と矢印 |
+| `omni_drive/firmware_wheels.py` | 実機の代わりに、**STM32 のファームウェア(速度の PID)をそのまま動かして**ふりをする(`firmware:=true`、`./sim.sh omni fw`) |
 | `omni_drive/fake_wheels.py` | 実機の代わりに、STM32(モーター 2 個)のふりをする |
 | `config/omni.yaml` | **ロボットに合わせて書き換える設定**(ホイールの位置・向き、どの基板のどのモーターか) |
 | `config/omni.rviz` | rviz2 の表示設定(上から見た図、前が画面の上) |

@@ -4,6 +4,7 @@
 #   ./sim.sh            … スワーブ(swerve_drive)
 #   ./sim.sh omni       … オムニホイール(omni_drive)
 #   ./sim.sh omni joy   … WASD の代わりにゲームパッドで操縦
+#   ./sim.sh fw         … STM32 のファームウェアもそのまま動かす(./sim.sh omni fw のように組み合わせる)
 #
 # 起動する前に、変わったところだけ colcon build する(数秒)。Ctrl+C で全部止まる。
 # コンテナの中では、~/ros2_ws で ./sim.sh(同じ使い方)を実行する。

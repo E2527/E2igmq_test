@@ -38,7 +38,10 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 |---|---|
 | `swerve_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `swerve_drive/swerve_node.py` | ROS 2 のノード。`/cmd_vel` を受け取って指令を出し、`/odom` と TF と矢印を出す |
+| `swerve_drive/drive_monitor.py` | 速さモニター: 指令の速さ(`/cmd_vel`)と実際の速さ(`/odom`)を、数字と棒グラフで並べて表示する |
 | `swerve_drive/keyboard_teleop.py` | WASD で操縦するウィンドウ(押している間だけ動く。キーの計算は `teleop_keys.py`) |
+| `swerve_drive/firmware_modules.py` | 実機の代わりに、**STM32 のファームウェアをそのまま動かして**モジュールのふりをする(`firmware:=true`) |
+| `swerve_drive/firmware_sim.py` | `firmware/sim/firmware_sim.c` とファームウェアの部品を gcc でビルドして呼ぶ |
 | `swerve_drive/fake_modules.py` | 実機の代わりに、モジュールのふりをする(向きはゆっくり回り、タイヤは少し遅れて追いつく) |
 | `config/swerve.yaml` | **ロボットに合わせて書き換える設定**(モジュールの位置、タイヤの半径、ID など) |
 | `config/joy.yaml` | ゲームパッドのボタンとスティックの割り当て |
@@ -77,6 +80,8 @@ rviz2 に、上から見たロボットが出ます。**赤い矢印が目標の
 | Q / E | 左回り / 右回り |
 | Shift | 速くする(2 倍) |
 
+**速さモニター**のウィンドウも開きます。前後・左右・回転ごとに、指令の速さ(薄い色)と実際の速さ(濃い色)が並び、実際が指令より大きく遅いと「頭打ち」と出ます(タイヤやモーターの上限に当たっているとき。`./sim.sh fw` だと STM32 の上限も反映される)。PC から Wi-Fi で操縦するときの `teleop.launch.py` でも開きます(`monitor:=false` で消せる)。
+
 W と D を同時に押すと斜めに進みます。ほかのウィンドウを選ぶと止まります。速さは `linear_speed` / `angular_speed` パラメータで変えられます。
 
 ゲームパッドがあれば、`joy:=true` を付けると使えます(LB を押している間だけ動きます。ボタンの割り当ては `config/joy.yaml`)。
@@ -84,6 +89,26 @@ W と D を同時に押すと斜めに進みます。ほかのウィンドウを
 ```bash
 ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 ```
+
+### 1.5 STM32 のファームウェアまで含めて試す(`./sim.sh fw`)
+
+```bash
+./sim.sh fw                       # ホストで(コンテナの中なら ~/ros2_ws で同じ)
+ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true rviz:=true keyboard:=true   # 1 つずつ起動するとき
+```
+
+`fake_modules`(簡単な真似)の代わりに `firmware_modules` を使います。
+
+```
+swerve_node(本物)─ [向き, 速さ] ─▶ ファームウェアの計算(本物)─▶ モーターと差動ギアの模型
+                   ◀─ [向き, 速さ] ─┘  向きの制御・差動ミキシング・速度の PID      速さが遅れて追いつく、
+                                        (app_config.h のゲイン・ギア比)          エンコーダは整数で数える
+```
+
+- **`firmware/motor_node_f303k8/Core/Inc/app_config.h` のゲインやギア比を変えて起動し直すと、動きが変わります**(起動するたびに gcc でビルドし直す)。実機の前に、だいたいのゲインや、ギア比の符号のまちがいを確かめられます。
+- `stm<ID>/true_state` に、模型の「本当の」向きと速さが出ます。`config/swerve.yaml` の `firmware_modules` で、`mech_steer_ratio` / `mech_wheel_ratio`(本当の機構のギア比)をわざとファームウェアの設定と違う値にすると、設定のまちがいがどう見えるか試せます。
+- モーターの模型(`motor_no_load_speed`、`motor_time_constant`)は、実機のモーターを測った値を入れると、実機に近づきます。**最終的なゲインの調整は実機で**行います。
+- `max_wheel_speed` は、STM32 が出せる速さ(`APP_SWERVE_MAX_MOTOR_SPEED × APP_SWERVE_WHEEL_RATIO`)以下にします。超えると、指令ほど速く走りません(このシミュレーションで確認できます)。
 
 ### 2. 実機を PC から Wi-Fi で操縦する
 
