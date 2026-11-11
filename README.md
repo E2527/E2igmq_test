@@ -96,6 +96,7 @@ echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
 ./sim.sh omni       # オムニホイール(omni_drive)
 ./sim.sh omni joy   # WASD の代わりにゲームパッド
 ./sim.sh fw         # STM32 のファームウェアもそのまま動かす(app_config.h のゲイン・ギア比が動きに出る)
+# どれでも、rviz2・WASD の操縦・速さモニター・状態ダッシュボード(/diagnostics の一覧と停止ボタン)が開く
 echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
 ```
 

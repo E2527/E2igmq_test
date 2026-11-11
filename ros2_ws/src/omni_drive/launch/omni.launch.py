@@ -16,6 +16,7 @@
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す
     keyboard      … true: WASD で /cmd_vel を出す(swerve_drive の keyboard_teleop)
     monitor       … true: 指令の速さと実際の速さを並べて表示する(drive_monitor)
+    dashboard     … true: 状態ダッシュボード(/diagnostics の一覧と停止ボタン、robot_dashboard)
     rviz          … true: rviz2 でオドメトリと各ホイールの矢印を表示する(PC 用)
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
@@ -73,6 +74,7 @@ def generate_launch_description():
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('keyboard', default_value='false'),
         DeclareLaunchArgument('monitor', default_value='false'),
+        DeclareLaunchArgument('dashboard', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
@@ -87,7 +89,7 @@ def generate_launch_description():
         # 操縦(swerve_drive と共通)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(teleop),
-            launch_arguments={'rviz': 'false', 'monitor': 'false'}.items(),
+            launch_arguments={'rviz': 'false', 'monitor': 'false', 'dashboard': 'false'}.items(),
             condition=IfCondition(LaunchConfiguration('joy'))),
         Node(package='swerve_drive', executable='keyboard_teleop', name='keyboard_teleop',
              condition=IfCondition(LaunchConfiguration('keyboard'))),
@@ -96,6 +98,9 @@ def generate_launch_description():
         # 指令の速さと実際の速さを並べて表示する(速さモニター)
         Node(package='swerve_drive', executable='drive_monitor', name='drive_monitor',
              condition=IfCondition(LaunchConfiguration('monitor'))),
+        # 状態ダッシュボード(/diagnostics の一覧と停止ボタン)
+        Node(package='swerve_drive', executable='robot_dashboard', name='robot_dashboard',
+             condition=IfCondition(LaunchConfiguration('dashboard'))),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'omni.rviz')],
              condition=IfCondition(LaunchConfiguration('rviz'))),

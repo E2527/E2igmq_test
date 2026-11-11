@@ -22,11 +22,13 @@
 import math
 import time
 
+from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Bool, Float32MultiArray
+from swerve_drive import robot_status
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -76,6 +78,11 @@ class OmniNode(Node):
         self.last_update = time.monotonic()
 
         self.create_subscription(Twist, 'cmd_vel', self.on_cmd_vel, 10)
+        self.stopped = False        # 停止ボタン(/drive_stop)が押されている間は true
+        self.create_subscription(Bool, robot_status.STOP_TOPIC, self.on_stop,
+                                 robot_status.STOP_QOS)
+        self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+        self.create_timer(1.0, self.publish_diagnostics)
         self.cmd_pubs = {}
         for board in self.boards:
             self.cmd_pubs[board] = self.create_publisher(
@@ -116,6 +123,35 @@ class OmniNode(Node):
         return [self.states[b][1][slot] * sign
                 for b, slot, sign in zip(self.wheel_ids, self.wheel_slots, self.wheel_signs)]
 
+    def on_stop(self, msg):
+        if msg.data != self.stopped:
+            self.get_logger().warn('停止ボタンが押されました。止まります' if msg.data
+                                   else '停止ボタンが解除されました')
+        self.stopped = msg.data
+
+    def publish_diagnostics(self):
+        """指令とSTM32の状態を /diagnostics に出す(1 秒ごと)."""
+        now = time.monotonic()
+        st = robot_status
+        if self.stopped:
+            cmd = st.make_status('omni_drive: 指令', st.WARN, '停止ボタンで止めています')
+        elif self.cmd_time is not None and now - self.cmd_time <= self.cmd_timeout_s:
+            vx, vy, omega = self.cmd
+            cmd = st.make_status('omni_drive: 指令', st.OK, '/cmd_vel が届いています',
+                                 前後=f'{vx:+.2f} m/s', 左右=f'{vy:+.2f} m/s',
+                                 回転=f'{omega:+.2f} rad/s')
+        else:
+            cmd = st.make_status('omni_drive: 指令', st.OK, '指令なし(止まっています)')
+        late = self.late_devices(now)
+        if late:
+            parts = st.make_status('omni_drive: STM32', st.ERROR,
+                                   f'{", ".join(late)} の状態が届いていません')
+        else:
+            parts = st.make_status('omni_drive: STM32', st.OK, '全部の状態が届いています')
+        msg = DiagnosticArray(status=[cmd, parts])
+        msg.header.stamp = self.get_clock().now().to_msg()
+        self.diag_pub.publish(msg)
+
     # ---- 周期処理 ----
 
     def update(self):
@@ -124,7 +160,7 @@ class OmniNode(Node):
         self.last_update = now
 
         # 1. 指令: cmd_vel が途切れたら止まる
-        if self.cmd_time is None or now - self.cmd_time > self.cmd_timeout_s:
+        if self.stopped or self.cmd_time is None or now - self.cmd_time > self.cmd_timeout_s:
             vx = vy = omega = 0.0
         else:
             vx, vy, omega = self.cmd
@@ -144,10 +180,12 @@ class OmniNode(Node):
             self.publish_odometry(body)
         self.publish_markers(targets, measured)
 
-    def check_states(self):
-        now = time.monotonic()
-        late = [f'stm{b}' for b, s in self.states.items()
+    def late_devices(self, now):
+        return [f'stm{b}' for b, s in self.states.items()
                 if s is None or now - s[0] > self.state_timeout_s]
+
+    def check_states(self):
+        late = self.late_devices(time.monotonic())
         if late:
             self.get_logger().warn(
                 f'{", ".join(late)} から状態が届いていません(オドメトリは止まっています)。'

@@ -40,6 +40,7 @@ FROM base AS dev
 # ソースより先に入れて、src を変えても再インストールされないようにする
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-rviz2 \
+        ros-${ROS_DISTRO}-rqt-robot-monitor \
         ros-${ROS_DISTRO}-demo-nodes-cpp \
         ros-${ROS_DISTRO}-demo-nodes-py \
         gcc-arm-none-eabi \

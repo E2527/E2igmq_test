@@ -27,6 +27,7 @@ def generate_launch_description():
         DeclareLaunchArgument('joy', default_value='true'),
         DeclareLaunchArgument('keyboard', default_value='false'),
         DeclareLaunchArgument('monitor', default_value='true'),
+        DeclareLaunchArgument('dashboard', default_value='true'),
 
         # ゲームパッド → /joy → /cmd_vel(LB を押している間だけ。config/joy.yaml)
         Node(package='joy', executable='joy_node', name='joy_node',
@@ -41,6 +42,9 @@ def generate_launch_description():
         # 指令の速さと実際の速さを並べて表示する(速さモニター)
         Node(package='swerve_drive', executable='drive_monitor', name='drive_monitor',
              condition=IfCondition(LaunchConfiguration('monitor'))),
+        # 状態ダッシュボード(Pi の stm_bridge・足回りの状態と、停止ボタン)
+        Node(package='swerve_drive', executable='robot_dashboard', name='robot_dashboard',
+             condition=IfCondition(LaunchConfiguration('dashboard'))),
 
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],

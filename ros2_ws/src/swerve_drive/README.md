@@ -38,6 +38,8 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 |---|---|
 | `swerve_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `swerve_drive/swerve_node.py` | ROS 2 のノード。`/cmd_vel` を受け取って指令を出し、`/odom` と TF と矢印を出す |
+| `swerve_drive/robot_dashboard.py` | 状態ダッシュボード: `/diagnostics` の一覧(各 STM32 とつながっているか、指令が届いているか)と**停止ボタン** |
+| `swerve_drive/robot_status.py` | `/diagnostics` と停止ボタン(`/drive_stop`)の共通の部品 |
 | `swerve_drive/drive_monitor.py` | 速さモニター: 指令の速さ(`/cmd_vel`)と実際の速さ(`/odom`)を、数字と棒グラフで並べて表示する |
 | `swerve_drive/keyboard_teleop.py` | WASD で操縦するウィンドウ(押している間だけ動く。キーの計算は `teleop_keys.py`) |
 | `swerve_drive/firmware_modules.py` | 実機の代わりに、**STM32 のファームウェアをそのまま動かして**モジュールのふりをする(`firmware:=true`) |
@@ -89,6 +91,25 @@ W と D を同時に押すと斜めに進みます。ほかのウィンドウを
 ```bash
 ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 ```
+
+### ロボットの状態を見る(状態ダッシュボード、`/diagnostics`)
+
+stm_bridge と足回りのノードは、自分の状態を **`/diagnostics`**(ROS 2 の共通の決まり)に 1 秒ごとに出しています。
+
+| 項目 | OK | 注意 / エラー |
+|---|---|---|
+| `stm_bridge: can0`(通信の線) | 開いている | 開けない、送信できなかった指令がある |
+| `stm_bridge: stm1`〜 | 状態が届いている(受信 回/秒) | 回数が少ない / 届いていない(配線・電源・ID) |
+| `swerve_drive: 指令` | `/cmd_vel` が届いている、または指令なし | 停止ボタンで止めている |
+| `swerve_drive: モジュール` | 全部の状態が届いている | どれかが届いていない |
+
+**状態ダッシュボード**(`robot_dashboard`)は、これを一覧で表示します。`./sim.sh` と、PC から Wi-Fi で操縦するときの `teleop.launch.py` で自動的に開きます(`dashboard:=false` で消せる)。単独で開くときは `ros2 run swerve_drive robot_dashboard` です。
+
+- しばらく届かない項目は灰色で「届いていない」と出ます(そのノードが止まったか、Wi-Fi が切れた)。
+- **停止ボタン**(または Esc キー)を押すと、足回りは `/cmd_vel` を無視して止まります。「▶ 再開」を押すまで止まったままです。停止の状態は、あとから起動したノードにも届きます。
+- **停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ(モーターの電源を切るもの)は、必ず別に付けてください。**
+
+同じ `/diagnostics` は、ROS 2 標準の **rqt_robot_monitor** でも見られます(`ros2 run rqt_robot_monitor rqt_robot_monitor`)。
 
 ### 1.5 STM32 のファームウェアまで含めて試す(`./sim.sh fw`)
 
