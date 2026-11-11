@@ -38,6 +38,7 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 |---|---|
 | `swerve_drive/kinematics.py` | 計算の本体(逆運動学・順運動学・オドメトリ)。ROS なしで動くので、テストしやすい |
 | `swerve_drive/swerve_node.py` | ROS 2 のノード。`/cmd_vel` を受け取って指令を出し、`/odom` と TF と矢印を出す |
+| `swerve_drive/drive_monitor.py` | 速さモニター: 指令の速さ(`/cmd_vel`)と実際の速さ(`/odom`)を、数字と棒グラフで並べて表示する |
 | `swerve_drive/keyboard_teleop.py` | WASD で操縦するウィンドウ(押している間だけ動く。キーの計算は `teleop_keys.py`) |
 | `swerve_drive/firmware_modules.py` | 実機の代わりに、**STM32 のファームウェアをそのまま動かして**モジュールのふりをする(`firmware:=true`) |
 | `swerve_drive/firmware_sim.py` | `firmware/sim/firmware_sim.c` とファームウェアの部品を gcc でビルドして呼ぶ |
@@ -78,6 +79,8 @@ rviz2 に、上から見たロボットが出ます。**赤い矢印が目標の
 | A / D | 左 / 右(向きを変えずに横に動く) |
 | Q / E | 左回り / 右回り |
 | Shift | 速くする(2 倍) |
+
+**速さモニター**のウィンドウも開きます。前後・左右・回転ごとに、指令の速さ(薄い色)と実際の速さ(濃い色)が並び、実際が指令より大きく遅いと「頭打ち」と出ます(タイヤやモーターの上限に当たっているとき。`./sim.sh fw` だと STM32 の上限も反映される)。PC から Wi-Fi で操縦するときの `teleop.launch.py` でも開きます(`monitor:=false` で消せる)。
 
 W と D を同時に押すと斜めに進みます。ほかのウィンドウを選ぶと止まります。速さは `linear_speed` / `angular_speed` パラメータで変えられます。
 

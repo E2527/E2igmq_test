@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 足回りのシミュレーションを 1 コマンドで起動する(dev コンテナの中で使う。rviz2 + WASD の操縦ウィンドウ)
+# 足回りのシミュレーションを 1 コマンドで起動する(dev コンテナの中で使う。rviz2 + WASD の操縦ウィンドウ + 速さモニター)
 #
 #   ./sim.sh            … スワーブ(swerve_drive)
 #   ./sim.sh omni       … オムニホイール(omni_drive)
@@ -29,4 +29,4 @@ done
 
 colcon build --symlink-install --packages-up-to "${drive}_drive"
 source install/setup.bash
-exec ros2 launch "${drive}_drive" "${drive}.launch.py" sim:=true rviz:=true "$teleop" "$firmware"
+exec ros2 launch "${drive}_drive" "${drive}.launch.py" sim:=true rviz:=true monitor:=true "$teleop" "$firmware"

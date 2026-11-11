@@ -32,6 +32,7 @@ setup(
             'fake_modules = swerve_drive.fake_modules:main',
             'firmware_modules = swerve_drive.firmware_modules:main',
             'keyboard_teleop = swerve_drive.keyboard_teleop:main',
+            'drive_monitor = swerve_drive.drive_monitor:main',
         ],
     },
 )
