@@ -50,7 +50,7 @@ class SwerveNode(Node):
         self.kinematics = SwerveKinematics(
             [Module(n, x, y) for n, x, y in zip(names, xs, ys)],
             wheel_radius=p('wheel_radius', 0.05).value,
-            max_wheel_speed=p('max_wheel_speed', 40.0).value)
+            max_wheel_speed=p('max_wheel_speed', 12.0).value)
         self.ids = ids
         self.cmd_timeout_s = p('cmd_timeout_s', 0.5).value
         self.state_timeout_s = p('state_timeout_s', 0.5).value

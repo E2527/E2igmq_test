@@ -3,6 +3,8 @@
 
     # 実機なしで試す(モジュールのふり + rviz2 で確認 + WASD かゲームパッド)
     ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true keyboard:=true
+    # STM32 のファームウェア(ゲイン・ギア比)まで含めて試す
+    ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true rviz:=true keyboard:=true
     ros2 launch swerve_drive swerve.launch.py sim:=true rviz:=true joy:=true
 
     # 実機(stm_bridge で STM32 × 4 とつなぐ)。PC から Wi-Fi で操縦するときは joy なしで起動し、
@@ -11,6 +13,8 @@
 
 引数:
     sim           … true: fake_modules で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
+    firmware      … true(sim のとき): fake_modules の代わりに、STM32 のファームウェアをそのまま動かす
+                    firmware_modules を使う(app_config.h のゲイン・ギア比が動きに出る)
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す(teleop.launch.py)
     keyboard      … true: WASD で /cmd_vel を出す(keyboard_teleop のウィンドウが開く)
     rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
@@ -35,7 +39,7 @@ import yaml
 
 def _modules(context):
     """
-    STM32 の側: sim なら fake_modules、実機なら stm_bridge.
+    STM32 の側: sim なら fake_modules か firmware_modules、実機なら stm_bridge.
 
     どちらも ID は swerve.yaml の device_ids を使う(1 か所だけ書けばよい)。
     """
@@ -44,7 +48,9 @@ def _modules(context):
     with open(config, encoding='utf-8') as f:
         ids = yaml.safe_load(f)['swerve_drive']['ros__parameters']['device_ids']
     if IfCondition(LaunchConfiguration('sim')).evaluate(context):
-        return [Node(package='swerve_drive', executable='fake_modules', name='fake_modules',
+        use_firmware = IfCondition(LaunchConfiguration('firmware')).evaluate(context)
+        name = 'firmware_modules' if use_firmware else 'fake_modules'
+        return [Node(package='swerve_drive', executable=name, name=name,
                      parameters=[config, {'device_ids': ids}], output='screen')]
     bridge_config = os.path.join(get_package_share_directory('stm_bridge'), 'config',
                                  'bridge.yaml')
@@ -64,6 +70,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('firmware', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('keyboard', default_value='false'),

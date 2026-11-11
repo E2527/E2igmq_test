@@ -3,12 +3,16 @@
 
     # 実機なしで試す(STM32 のふり + rviz2 で確認 + WASD かゲームパッド)
     ros2 launch omni_drive omni.launch.py sim:=true rviz:=true keyboard:=true
+    # STM32 のファームウェア(速度の PID)まで含めて試す
+    ros2 launch omni_drive omni.launch.py sim:=true firmware:=true rviz:=true keyboard:=true
 
     # 実機(stm_bridge で STM32 とつなぐ。STM32 はモーター 2 個の速度制御の通常版)
     ros2 launch omni_drive omni.launch.py can_interface:=serial:/dev/ttyACM0
 
 引数(swerve_drive の swerve.launch.py と同じ):
     sim           … true: fake_wheels で実機のふりをする / false: stm_bridge を起動して実機とつなぐ
+    firmware      … true(sim のとき): fake_wheels の代わりに、STM32 のファームウェアをそのまま動かす
+                    firmware_wheels を使う(app_config.h のゲインが動きに出る)
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す
     keyboard      … true: WASD で /cmd_vel を出す(swerve_drive の keyboard_teleop)
     rviz          … true: rviz2 でオドメトリと各ホイールの矢印を表示する(PC 用)
@@ -32,7 +36,7 @@ import yaml
 
 def _boards(context):
     """
-    STM32 の側: sim なら fake_wheels、実機なら stm_bridge.
+    STM32 の側: sim なら fake_wheels(firmware:=true なら firmware_wheels)、実機なら stm_bridge.
 
     どちらも ID は omni.yaml の device_ids に出てくる基板の ID を使う(1 か所だけ書けばよい)。
     """
@@ -42,7 +46,9 @@ def _boards(context):
         ids = yaml.safe_load(f)['omni_drive']['ros__parameters']['device_ids']
     boards = sorted(set(ids))
     if IfCondition(LaunchConfiguration('sim')).evaluate(context):
-        return [Node(package='omni_drive', executable='fake_wheels', name='fake_wheels',
+        use_firmware = IfCondition(LaunchConfiguration('firmware')).evaluate(context)
+        name = 'firmware_wheels' if use_firmware else 'fake_wheels'
+        return [Node(package='omni_drive', executable=name, name=name,
                      parameters=[config, {'boards': boards}], output='screen')]
     bridge_config = os.path.join(get_package_share_directory('stm_bridge'), 'config',
                                  'bridge.yaml')
@@ -62,6 +68,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('sim', default_value='false'),
+        DeclareLaunchArgument('firmware', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('keyboard', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),

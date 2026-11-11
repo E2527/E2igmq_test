@@ -43,3 +43,11 @@ omni_drive:
 fake_wheels:
   ros__parameters:
     time_constant: 0.1
+
+# STM32 のファームウェアをそのまま動かすシミュレーション(firmware:=true のとき)
+# ゲインとエンコーダは firmware/motor_node_f303k8/Core/Inc/app_config.h のものを使う
+firmware_wheels:
+  ros__parameters:
+    firmware_dir: /root/firmware            # リポジトリの firmware/(dev コンテナの中の場所)
+    motor_no_load_speed: 0.0                # デューティ比 1.0 での速さ [rad/s](0 なら 1 / APP_KFF)
+    motor_time_constant: 0.0                # モーターの速さが追いつく速さ [s](0 なら 0.05)
