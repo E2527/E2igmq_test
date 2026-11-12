@@ -8,16 +8,16 @@ REPO = os.path.join(HERE, '..', '..', '..', '..')
 APP_CONFIG = os.path.join(REPO, 'firmware', 'motor_node_f303k8', 'Core', 'Inc', 'app_config.h')
 SWERVE_YAML = os.path.join(HERE, '..', 'config', 'swerve.yaml')
 
-HEADER = '''/* 説明 */
+HEADER = """/* 説明 */
 #define APP_COUNTS_PER_REV 1440.0f
 #define APP_SWERVE_STEER_RATIO 0.25f        /* 同じ向き */
 #define APP_SWERVE_WHEEL_RATIO 0.5f         /* 逆向き */
 #define APP_SWERVE_COUPLING 0.0f
 #define APP_SWERVE_MAX_MOTOR_SPEED 25.0f    /* 上限 */
 #define APP_SWERVE_ANGLE_KP 8.0f
-'''
+"""
 
-YAML = '''swerve_drive:
+YAML = """swerve_drive:
   ros__parameters:
     module_x:     [0.25, 0.25, -0.25, -0.25]  # 前
     module_y:     [0.25, -0.25, 0.25, -0.25]  # 左
@@ -26,7 +26,7 @@ YAML = '''swerve_drive:
 fake_modules:
   ros__parameters:
     steer_speed: 6.0
-'''
+"""
 
 
 def test_defines_roundtrip_keeps_comments_and_other_lines():
