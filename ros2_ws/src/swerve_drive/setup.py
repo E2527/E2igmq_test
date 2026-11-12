@@ -32,6 +32,7 @@ setup(
             'fake_modules = swerve_drive.fake_modules:main',
             'firmware_modules = swerve_drive.firmware_modules:main',
             'robot_console = swerve_drive.robot_console:main',
+            'drive_setup = swerve_drive.drive_setup:main',
         ],
     },
 )

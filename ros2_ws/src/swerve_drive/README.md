@@ -41,6 +41,7 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 | `swerve_drive/robot_console.py` | **ロボットコンソール**: WASD の操縦、速さ、軌跡、状態、停止ボタンを 1 つにまとめたウィンドウ(ROS とのやり取りとウィンドウ) |
 | `swerve_drive/console_state.py` | コンソールに表示するデータ(ROS にも画面にも依存しない。テストあり) |
 | `swerve_drive/console_theme.py` / `console_widgets.py` | コンソールの色・フォントと、各カードの絵(PyQt5) |
+| `swerve_drive/drive_setup.py` | **ギア比と寸法の設定画面**(`app_config.h` と `swerve.yaml` の値を書き換える。読み書きは `setup_files.py`) |
 | `swerve_drive/teleop_keys.py` | 押しているキー → 速さの計算 |
 | `swerve_drive/robot_status.py` | `/diagnostics` と停止ボタン(`/drive_stop`)の共通の部品 |
 | `swerve_drive/firmware_modules.py` | 実機の代わりに、**STM32 のファームウェアをそのまま動かして**モジュールのふりをする(`firmware:=true`) |
@@ -212,6 +213,19 @@ ros2 launch swerve_drive teleop.launch.py joy:=false   # コンソールだけ(W
 ```bash
 ros2 launch swerve_drive swerve.launch.py joy:=true can_interface:=serial:/dev/ttyACM0
 ```
+
+## ギア比と寸法を入れる(設定画面)
+
+```bash
+ros ros2 run swerve_drive drive_setup      # ホストで(コンテナの中なら ros2 run swerve_drive drive_setup)
+```
+
+STM32 のギア比・エンコーダのカウント数・モーターの上限と、モジュールの間隔・タイヤの半径を入れて「保存」すると、
+`firmware/motor_node_f303k8/Core/Inc/app_config.h` と `config/swerve.yaml` の値だけを書き換えます(コメントやほかの行はそのまま)。
+
+- カウント数は「PPR × 4 × 減速比」の欄に入れて「計算して入れる」を押すと計算できます(例:775 用ホールエンコーダ 16 PPR、減速比 50 → 3200)。
+- タイヤの速さの上限(`max_wheel_speed`)は、STM32 が出せる速さ(モーターの上限 × タイヤのギア比)から自動で決めます。画面の下に、ロボットの最高速度も出ます。
+- 保存したら、STM32 は書き込み直し(`make APP=swerve NODE_ID=… flash`)、Pi / PC は起動し直します。`./sim.sh fw` なら、起動し直すだけで両方に反映されます。
 
 ## ロボットに合わせて変えるところ(`config/swerve.yaml`)
 
