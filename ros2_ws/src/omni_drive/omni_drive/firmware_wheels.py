@@ -7,7 +7,7 @@ PC でビルドして動かし、モーターは計算の模型で真似する(f
     stm<ID>/command [モーター1 の目標速度, モーター2 の目標速度] を受け取り、
     stm<ID>/state   [モーター1 の速度, モーター2 の速度](ファームウェアが Pi に返すのと同じ値)を返す
 
-    ros2 launch omni_drive omni.launch.py sim:=true firmware:=true rviz:=true keyboard:=true
+    ros2 launch omni_drive omni.launch.py sim:=true firmware:=true console:=true
 """
 
 import time

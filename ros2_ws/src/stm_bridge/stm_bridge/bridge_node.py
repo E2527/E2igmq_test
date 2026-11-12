@@ -15,6 +15,7 @@ import math
 import threading
 import time
 
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
@@ -31,6 +32,8 @@ class StmBridge(Node):
         rate_hz = self.declare_parameter('rate_hz', 100.0).value
         self.command_timeout_s = self.declare_parameter('command_timeout_s', 0.5).value
         self.state_timeout_s = self.declare_parameter('state_timeout_s', 0.5).value
+        # STM32 が状態を送る回数 [回/秒](10 ms ごと)。これの半分より少ないと「注意」にする
+        self.expected_state_hz = self.declare_parameter('expected_state_hz', 100.0).value
         for dev_id in self.device_ids:
             protocol.command_id(dev_id)  # ID の範囲を確認
 
@@ -39,8 +42,12 @@ class StmBridge(Node):
         self.next_open_time = 0.0
         self.commands = {}        # ID -> (受け取った時刻, data)
         self.last_state = {}      # ID -> 最後に状態が届いた時刻
-        self.rx_count = {i: 0 for i in self.device_ids}
+        self.rx_count = dict.fromkeys(self.device_ids, 0)
         self.tx_errors = 0
+        self.diag_count = dict.fromkeys(self.device_ids, 0)   # /diagnostics 用(1 秒ごとに数え直す)
+        self.diag_tx_errors = 0
+        self.diag_time = time.monotonic()
+        self.open_error = None                              # 開けなかった理由(開けたら None)
 
         self.state_pubs = {}
         for dev_id in self.device_ids:
@@ -52,6 +59,8 @@ class StmBridge(Node):
 
         self.create_timer(1.0 / rate_hz, self.send_commands)
         self.create_timer(5.0, self.report)
+        self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
+        self.create_timer(1.0, self.publish_diagnostics)
         self.running = True
         self.rx_thread = threading.Thread(target=self.receive_loop, daemon=True)
         self.rx_thread.start()
@@ -80,12 +89,14 @@ class StmBridge(Node):
             bus = can_bus.open_bus(self.interface, protocol.STATE_FILTER)
         except (OSError, ValueError) as e:
             self.next_open_time = now + 1.0
+            self.open_error = str(e)
             self.get_logger().warn(
                 f'{self.interface} を開けません: {e}'
                 f'(CAN なら can0 が up か、シリアルなら USB がつながっているか確認してください)',
                 throttle_duration_sec=5.0)
             return None
         self.get_logger().info(f'{self.interface} を開きました')
+        self.open_error = None
         with self.bus_lock:
             self.bus = bus
         return bus
@@ -114,6 +125,7 @@ class StmBridge(Node):
             except OSError as e:
                 if e.errno in can_bus.TRANSIENT_ERRORS:
                     self.tx_errors += 1
+                    self.diag_tx_errors += 1
                     continue
                 self.close_bus(e)
                 return
@@ -142,6 +154,7 @@ class StmBridge(Node):
                 continue
             self.last_state[dev_id] = time.monotonic()
             self.rx_count[dev_id] += 1
+            self.diag_count[dev_id] += 1
             self.state_pubs[dev_id].publish(Float32MultiArray(data=values))
 
     def report(self):
@@ -159,6 +172,46 @@ class StmBridge(Node):
                 self.get_logger().warn(f'stm{dev_id} から状態が届いていません')
             self.rx_count[dev_id] = 0
         self.tx_errors = 0
+
+    def publish_diagnostics(self):
+        """通信の線と STM32 ごとの状態を /diagnostics に出す(1 秒ごと)."""
+        now = time.monotonic()
+        elapsed = max(now - self.diag_time, 1e-3)
+        self.diag_time = now
+        statuses = []
+
+        if self.bus is not None:
+            level, message = DiagnosticStatus.OK, '開いています'
+            if self.diag_tx_errors:
+                level = DiagnosticStatus.WARN
+                message = f'送信できなかった指令 {self.diag_tx_errors} 回(配線・終端抵抗を確認)'
+        else:
+            level = DiagnosticStatus.ERROR
+            message = f'開けません: {self.open_error}' if self.open_error else '開いていません'
+        statuses.append(self.status(f'stm_bridge: {self.interface}', level, message))
+        self.diag_tx_errors = 0
+
+        for dev_id in self.device_ids:
+            rate = self.diag_count[dev_id] / elapsed
+            self.diag_count[dev_id] = 0
+            last = self.last_state.get(dev_id)
+            if last is None or now - last > self.state_timeout_s:
+                level, message = DiagnosticStatus.ERROR, '状態が届いていません(配線・電源・ID を確認)'
+            elif rate < self.expected_state_hz * 0.5:
+                level, message = DiagnosticStatus.WARN, '状態の届く回数が少ない'
+            else:
+                level, message = DiagnosticStatus.OK, '通信しています'
+            statuses.append(self.status(f'stm_bridge: stm{dev_id}', level, message,
+                                        受信=f'{rate:.0f} 回/秒'))
+
+        msg = DiagnosticArray(status=statuses)
+        msg.header.stamp = self.get_clock().now().to_msg()
+        self.diag_pub.publish(msg)
+
+    def status(self, name, level, message, **values):
+        return DiagnosticStatus(name=name, level=level, message=message,
+                                hardware_id=self.interface,
+                                values=[KeyValue(key=k, value=str(v)) for k, v in values.items()])
 
     def shutdown(self):
         self.running = False

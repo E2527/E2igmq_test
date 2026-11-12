@@ -89,13 +89,14 @@ sudo usermod -aG docker $USER     # このあとログアウトしてログイ�
 echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
 ```
 
-足回りのシミュレーション(rviz2 + WASD)は **`./sim.sh`** の 1 つで起動できます。必要なところだけビルドしてから起動します。
+足回りのシミュレーションは **`./sim.sh`** の 1 つで起動できます。必要なところだけビルドしてから起動し、**ロボットコンソール**(WASD の操縦・速さ・軌跡・状態・停止ボタンを 1 つにまとめたウィンドウ。`ros2_ws/src/swerve_drive/README.md`)が開きます。
 
 ```bash
 ./sim.sh            # スワーブ(swerve_drive)
 ./sim.sh omni       # オムニホイール(omni_drive)
-./sim.sh omni joy   # WASD の代わりにゲームパッド
 ./sim.sh fw         # STM32 のファームウェアもそのまま動かす(app_config.h のゲイン・ギア比が動きに出る)
+./sim.sh joy        # ゲームパッドでも操縦する
+./sim.sh rviz       # rviz2 も開く(./sim.sh omni fw rviz のように、好きな順番で組み合わせられる)
 echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
 ```
 

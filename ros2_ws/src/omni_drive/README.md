@@ -45,11 +45,11 @@ source install/setup.bash
 ホストで `./sim.sh omni` を実行すると、ビルドから下の起動までを 1 回でやります(コンテナの中なら `~/ros2_ws` で同じ `./sim.sh`)。1 つずつ起動するときは次のとおりです。
 
 ```bash
-ros2 launch omni_drive omni.launch.py sim:=true rviz:=true keyboard:=true
+ros2 launch omni_drive omni.launch.py sim:=true console:=true
 ```
 
-rviz2 に上から見たロボットが出ます。矢印は、各ホイールが**床を押す向きと速さ**です(赤が目標、緑が実際)。
-「WASD で操縦」のウィンドウを選んで、W / A / S / D で移動、Q / E で回転、Shift で速くなります。
+**ロボットコンソール**(スワーブと共通。`swerve_drive/README.md`)が開きます。「ロボット」のカードの矢印は、各ホイールが**床を押す向きと速さ**です(緑が実際、白い点線が目標)。
+コンソールを選んだまま、W / A / S / D で移動、Q / E で回転、Shift で速くなります。Esc か停止ボタンで止まります。
 
 ### 2. 実機で動かす
 
@@ -60,7 +60,7 @@ rviz2 に上から見たロボットが出ます。矢印は、各ホイール�
    ```
 2. **最初はタイヤを浮かせて**、足回りを起動します。
    ```bash
-   ros2 launch omni_drive omni.launch.py keyboard:=true can_interface:=can0
+   ros2 launch omni_drive omni.launch.py console:=true can_interface:=can0
    ```
 3. W を押して、ロボットが前に進む向きに各タイヤが回るか確認します。逆に回るタイヤは、`omni.yaml` の `wheel_sign` を `-1` にします(STM32 を書き換えなくてよい)。
 

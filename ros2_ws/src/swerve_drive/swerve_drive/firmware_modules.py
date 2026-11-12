@@ -9,7 +9,7 @@ fake_modules(簡単な真似)の代わりに使う。ファームウェアの計
     stm<ID>/state   [向き, タイヤの速さ](ファームウェアが Pi に返すのと同じ値)を返す
     stm<ID>/true_state [本当の向き, 本当のタイヤの速さ](模型の値。ギア比の設定の確認用)
 
-    ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true rviz:=true keyboard:=true
+    ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true console:=true
 """
 
 import time

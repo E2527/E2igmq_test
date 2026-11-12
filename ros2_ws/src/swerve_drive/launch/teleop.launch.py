@@ -1,12 +1,12 @@
 """
-PC 側: ゲームパッドかキーボードで /cmd_vel を出し、rviz2 でロボットの様子を見る.
+PC 側: ロボットコンソール(操縦・速さ・状態・停止)と、ゲームパッドを起動する.
 
-    ros2 launch swerve_drive teleop.launch.py                          # ゲームパッド + rviz2
-    ros2 launch swerve_drive teleop.launch.py joy:=false keyboard:=true  # WASD + rviz2
-    ros2 launch swerve_drive teleop.launch.py rviz:=false              # ゲームパッドだけ
+    ros2 launch swerve_drive teleop.launch.py              # コンソール + ゲームパッド
+    ros2 launch swerve_drive teleop.launch.py joy:=false   # コンソールだけ(WASD で操縦)
+    ros2 launch swerve_drive teleop.launch.py rviz:=true   # rviz2 も開く
 
-ロボット(Pi)では swerve.launch.py を起動しておく。PC と Pi が同じ Wi-Fi にいて
-ROS_DOMAIN_ID が同じなら、/cmd_vel は Wi-Fi で Pi に届き、/odom や矢印は PC に届く。
+ロボット(Pi)では swerve.launch.py か omni.launch.py を起動しておく。PC と Pi が同じ Wi-Fi にいて
+ROS_DOMAIN_ID が同じなら、/cmd_vel は Wi-Fi で Pi に届き、/odom や状態は PC に届く。
 """
 
 import os
@@ -23,24 +23,19 @@ def generate_launch_description():
     share = get_package_share_directory('swerve_drive')
     joy_config = os.path.join(share, 'config', 'joy.yaml')
     return LaunchDescription([
-        DeclareLaunchArgument('rviz', default_value='true'),
+        DeclareLaunchArgument('console', default_value='true'),
         DeclareLaunchArgument('joy', default_value='true'),
-        DeclareLaunchArgument('keyboard', default_value='false'),
-        DeclareLaunchArgument('monitor', default_value='true'),
+        DeclareLaunchArgument('rviz', default_value='false'),
+
+        # ロボットコンソール(WASD の操縦、速さ、軌跡、状態、停止ボタン)
+        Node(package='swerve_drive', executable='robot_console', name='robot_console',
+             condition=IfCondition(LaunchConfiguration('console'))),
 
         # ゲームパッド → /joy → /cmd_vel(LB を押している間だけ。config/joy.yaml)
         Node(package='joy', executable='joy_node', name='joy_node',
              parameters=[joy_config], condition=IfCondition(LaunchConfiguration('joy'))),
         Node(package='teleop_twist_joy', executable='teleop_node', name='teleop_twist_joy_node',
              parameters=[joy_config], condition=IfCondition(LaunchConfiguration('joy'))),
-
-        # キーボード(WASD)→ /cmd_vel(開いたウィンドウを選んでいる間だけ)
-        Node(package='swerve_drive', executable='keyboard_teleop', name='keyboard_teleop',
-             condition=IfCondition(LaunchConfiguration('keyboard'))),
-
-        # 指令の速さと実際の速さを並べて表示する(速さモニター)
-        Node(package='swerve_drive', executable='drive_monitor', name='drive_monitor',
-             condition=IfCondition(LaunchConfiguration('monitor'))),
 
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],
