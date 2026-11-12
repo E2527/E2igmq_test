@@ -1,220 +1,132 @@
-# E2igmq_test
-う、うおｗ
+# ロボコン ROS 2 リポジトリ
 
-## ROS 2 開発環境(Docker)
+ロボコンのロボットを動かすためのプログラム一式です。PC と Raspberry Pi で動く **ROS 2(Jazzy)** と、モーターを回す **STM32**(Nucleo-F303K8)のプログラムが入っています。
 
-ROS 2 Jazzy の開発環境を Docker で再現できるようにしています。ベースの `ros:jazzy` は amd64 / arm64 両対応なので、同じ構成が WSL(x86_64)でも Raspberry Pi(arm64)でも動きます。ただし **x86 でビルドしたイメージは Pi では動かない** ため、Pi 用は arm64 でビルドします(下記)。
+- 開発環境は **Docker** で作るので、誰の PC でも同じ環境になります(WSL でも Linux でも)。
+- 実機がなくても、PC の**シミュレーション**で足回りを動かして試せます。
+- GitHub に push すると、**CI**(自動テスト)が毎回動いて、壊れていないか確かめます。
 
-| ファイル | 内容 |
-|---|---|
-| `docker/Dockerfile` | PC(WSL)用。`base`(土台)/ `dev`(開発用・rviz2 入り)の2ステージ |
-| `docker/Dockerfile.pi` | Raspberry Pi(Pi 5 / Pi 400)用。`builder`(ビルド)/ `runtime`(ビルド結果だけを載せた軽量版)の2ステージ |
-| `docker/entrypoint.sh` | ROS とワークスペースの `setup.bash` を自動で読み込む |
-| `compose.yaml` | `dev` / `build` / `runtime` / `micro-ros-agent` の各サービス |
-| `docker-bake.hcl` | マルチアーキテクチャビルド(`docker buildx bake`)の定義 |
-| `ros2_ws/src/` | ROS 2 パッケージを置く場所 |
-| `ros2_ws/src/omni_drive/` | オムニホイール(3 輪 / 4 輪)の足回り。STM32 はモーター 2 個の速度制御のままで使える(詳しくは中の README) |
-| `ros2_ws/src/swerve_drive/` | 独立ステアリング(スワーブ)の足回り。`/cmd_vel` → 各モジュール、オドメトリ(詳しくは中の README) |
-| `firmware/stm32_can/` | STM32 側の部品。CAN 通信とモーターの速度制御(`stm_bridge` と対になる) |
-| `firmware/motor_node_f303k8/` | 上の部品を使った STM32F303K8 用の完成したプロジェクト(`make` でビルド) |
-| `firmware/lib/` | ST の HAL と CMSIS(git サブモジュール。`git submodule update --init` で取得) |
-| `docker/pi/80-can.network` | Pi の `can0` を自動で起動する設定 |
+初めての人は、下の「[はじめての人へ](#はじめての人へ)」から読んでください。
 
-### 新しい PC でのセットアップ
+---
 
-コード・Dockerfile・設定はすべてこのリポジトリに入っているので、新しい PC では **clone してイメージを作り直す** だけで同じ環境になります(古い PC からフォルダをコピーするより確実です)。古い PC に push していない変更があれば、先に `git status` で確認して push しておきます。
+## 全体の構成
 
-**Windows 側(PowerShell)**
-
-```powershell
-wsl --install -d Ubuntu-24.04     # 管理者で。終わったら再起動
-winget install usbipd             # Nucleo の USB を WSL に渡す
-# 管理者で(どの USB ポートに挿しても WSL に渡せるようにする)
-usbipd policy add --effect Allow --operation AutoBind --hardware-id 0483:374b
+```
+ 【PC】                          【Raspberry Pi(ロボットに載せる)】          【STM32 × 4】
+ ロボットコンソール(操縦・状態)    足回りの計算(swerve_drive / omni_drive)      モーターの速度制御
+ ゲームパッド                       ↓                                           (エンコーダ + PID)
+   │                               stm_bridge ── CAN / USB シリアル ─────────▶ スワーブなら
+   └── /cmd_vel(Wi-Fi)──────────▶   ↑                                       向きの制御も
+                                     └──────── 実際の速さ・向き ◀─────────────┘
 ```
 
-- STM32 に書き込むなら **STM32CubeProgrammer** も入れます。
-- VS Code を使うなら、拡張機能「WSL」と「Dev Containers」を入れます。
+| 担当 | 何をするか | 言語 | 場所 |
+|---|---|---|---|
+| **PC** | 操縦する、ロボットの状態を見る、シミュレーション | Python(ROS 2) | `ros2_ws/src/swerve_drive/`(ロボットコンソール) |
+| **Raspberry Pi** | 「どう動くか」を決める(足回りの計算、オドメトリ) | Python(ROS 2) | `ros2_ws/src/` |
+| **STM32** | 決められたとおりにモーターを回す(1 ms ごと) | C | `firmware/` |
 
-**WSL(Ubuntu)側**
+PC と Pi は同じ ROS 2 なので、**Pi がなくても PC だけで全部動かせます**(シミュレーション)。
 
-```bash
-# Docker Engine(Docker Desktop は不要)
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER     # このあと PowerShell で wsl --shutdown して開き直す
+---
 
-# git
-git config --global user.name "名前"
-git config --global user.email "メールアドレス"
+## はじめての人へ
 
-# リポジトリ(WSL のホーム ~ の下に置く)
-git clone https://github.com/e2527/E2igmq_test.git ~/e2igmq_test
-cd ~/e2igmq_test
-git checkout <使うブランチ>
-git submodule update --init       # STM32 の HAL
+次の順番で進めてください。
 
-# イメージを作ってコンテナを起動(MoveIt / Nav2 入りなので初回は 20〜40 分)
-docker compose build dev
-docker compose up -d dev
-docker exec -it ros_dev bash -c "source /opt/ros/jazzy/setup.bash && cd ~/ros2_ws && colcon build --symlink-install"
-```
-
-確認は `docker exec -it ros_dev bash` でコンテナに入り、`ros2 run demo_nodes_cpp talker` と `rviz2` が動けば OK です。
-
-**Linux(Fedora など)の PC の場合**
-
-WSL も usbipd もいりません。USB(`/dev/ttyACM0`)はそのままコンテナから見え、STM32 への書き込みも dev コンテナの中で `make flash` でできます(CubeProgrammer 不要)。
-
-```bash
-# Docker Engine(Fedora 標準の Podman ではなく Docker を使う。compose の設定がそのまま動く)
-curl -fsSL https://get.docker.com | sudo sh
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER     # このあとログアウトしてログインし直す
-
-# 以降の git clone 〜 docker compose up は上と同じ
-```
-
-- **GUI(rviz2)**:`./dev.sh`(`ros`)で入れば自動で許可されます。`docker exec` で入るときは、ログインするたびにホストで `xhost +SI:localuser:root` を実行してから `rviz2` を起動します(コンテナの root に画面への表示を許可する)。
-- **SELinux**:dev コンテナは `security_opt: label=disable` にしてあるので、マウントしたフォルダや `/dev` はそのまま使えます。
-- **USB シリアルがつながらない・すぐ切れる**:ModemManager が `/dev/ttyACM0` を横取りしていることがあります。`sudo systemctl disable --now ModemManager` で止めます(モバイル回線のモデムを使っていなければ不要なサービスです)。
-- **Pi と ROS 2 で通信する**:firewalld が DDS の通信を止めます。Pi とつなぐネットワークを信頼済みにします(例:`sudo firewall-cmd --permanent --zone=trusted --add-source=192.168.0.0/24 && sudo firewall-cmd --reload`。アドレスは自分のネットワークに合わせる)。
-
-### 開発(WSL)
-
-リポジトリは WSL のファイルシステム内(`~/...`)に clone してください。`/mnt/c/...` 配下はビルドが非常に遅くなります。STM32 のプロジェクトをビルドする場合は、clone のあとに `git submodule update --init` も実行します。
-
-**いつもの起動は `./dev.sh` の 1 つだけ**です。コンテナが止まっていれば起動して、そのまま中の bash に入ります(Linux では、コンテナに画面への表示を許可する `xhost` も自動で実行)。`./dev.sh rviz2` のように後ろにコマンドを書くと、コンテナでそのコマンドだけ実行します。どこからでも使えるように、`~/.bashrc` に次の 1 行を足しておくと、`ros` と打つだけで入れます。
-
-```bash
-echo 'alias ros="$HOME/e2igmq_test/dev.sh"' >> ~/.bashrc && source ~/.bashrc
-```
-
-足回りのシミュレーションは **`./sim.sh`** の 1 つで起動できます。必要なところだけビルドしてから起動し、**ロボットコンソール**(WASD の操縦・速さ・軌跡・状態・停止ボタンを 1 つにまとめたウィンドウ。`ros2_ws/src/swerve_drive/README.md`)が開きます。
-
-```bash
-./sim.sh            # スワーブ(swerve_drive)
-./sim.sh omni       # オムニホイール(omni_drive)
-./sim.sh fw         # STM32 のファームウェアもそのまま動かす(app_config.h のゲイン・ギア比が動きに出る)
-./sim.sh joy        # ゲームパッドでも操縦する
-./sim.sh rviz       # rviz2 も開く(./sim.sh omni fw rviz のように、好きな順番で組み合わせられる)
-echo 'alias sim="$HOME/e2igmq_test/sim.sh"' >> ~/.bashrc && source ~/.bashrc   # どこからでも sim / sim omni で
-```
-
-コンテナの中(`ros` で入ったあと)では、`~/ros2_ws` で `./sim.sh omni` のように同じ使い方で起動できます(本体は `ros2_ws/sim.sh`)。
-
-`./dev.sh` の中身は次のコマンドと同じです。
-
-```bash
-docker compose build dev        # 初回、または package.xml の依存を変えたとき
-docker compose up -d dev        # コンテナ ros_dev を起動
-docker compose exec dev bash    # コンテナに入る
-
-# コンテナ内
-colcon build --symlink-install
-source install/setup.bash
-```
-
-- `ros2_ws/` はコンテナの `/root/ros2_ws` にマウントされるので、編集と git 操作は WSL 側で行います。
-- ビルドとテストだけ実行して終了したいときは `docker compose run --rm build`。
-- 止めるときは `docker compose stop dev`、再開は `docker compose start dev`。
-- `network_mode: host` なので、同じネットワークの他マシン(Pi など)と ROS 2 トピックをやり取りできます。
-- `dev` には rviz2 が入っていて、WSLg 経由で Windows に表示できます(コンテナ内で `rviz2`)。
-- `dev` には MoveIt 2(アームの動作計画)も入っています。デモはコンテナ内で `ros2 launch moveit_resources_panda_moveit_config demo.launch.py`。rviz2 の「MotionPlanning」パネルで、ゴールの姿勢を動かして **Plan & Execute** を押すとアームが動きます。自分のアームの設定は `ros2 launch moveit_setup_assistant setup_assistant.launch.py` で作れます。
-- `dev` には Nav2(自律移動)と slam_toolbox(地図づくり)も入っています。シミュレーションはコンテナ内で `ros2 launch nav2_bringup tb3_simulation_launch.py`。rviz2 で **2D Pose Estimate** を押してロボットの位置を地図上でクリック&ドラッグし、**Nav2 Goal** でゴールを指定すると、障害物をよけて走ります。
-
-### Raspberry Pi(arm64)で使う
-
-Pi では `docker/Dockerfile.pi` の `runtime` イメージを使います(Pi 5 / Pi 400 共通)。
-
-- `ros:jazzy-ros-core` に、`ros2_ws` のビルド結果と実行時の依存(`exec_depend`)だけを載せた軽量版です。rviz2 などの GUI やコンパイラは入りません。
-- root ではなく `ubuntu` ユーザー(UID 1000)で動きます。compose の `stm-bridge` は `dialout` グループを足して起動します。Pi の最初のユーザーと UID が同じなのでファイルの持ち主がずれず、USB シリアルにもアクセスできます。
-- `ros2_ws/src` のパッケージはビルド済みで焼き込まれるので、コードを変えたらイメージを作り直して送り直します。
-
-**方法1: Pi 上で直接ビルド**(いちばん簡単。Pi 側で自動的に arm64 になります)
-
-```bash
-docker compose build runtime
-docker compose --profile robot up -d drive          # 足回り一式(swerve_drive + stm_bridge)
-docker compose --profile robot run --rm runtime ros2 topic list
-```
-
-**方法2: WSL で arm64 イメージを作って Pi へ送る**(Pi 400 で重いビルドを避けたいとき)
-
-```bash
-# 初回のみ: arm64 エミュレーション(QEMU)を有効化
-docker run --privileged --rm tonistiigi/binfmt --install arm64
-
-docker buildx bake -f docker-bake.hcl runtime-arm64     # robocon-ros2-arm64.tar ができる(Pi 5 / Pi 400 共通)
-scp robocon-ros2-arm64.tar pi@<PiのIP>:~
-ssh pi@<PiのIP> docker load -i robocon-ros2-arm64.tar
-```
-
-C++ を CPU に合わせて最適化したい場合は、`runtime-pi5`(Cortex-A76)または `runtime-pi400`(Cortex-A72)を使います。それぞれ `robocon-ros2-pi5.tar` / `robocon-ros2-pi400.tar` ができ、タグは `robocon/ros2:jazzy-pi5` / `robocon/ros2:jazzy-pi400` です。**Pi 5 向けのイメージは Pi 400 では動きません**(Pi 400 向けは Pi 5 でも動きます)。迷ったら `runtime-arm64` を使ってください。
-
-QEMU 経由のビルドはネイティブより数倍遅くなります。開発用イメージを両アーキテクチャ分まとめて作る場合は `docker buildx bake -f docker-bake.hcl dev`(複数プラットフォームの出力にはレジストリへの push か containerd image store が必要です)。
-
-### STM32 との通信(stm_bridge、CAN)
-
-CAN バスにつないだ複数の STM32 と、ROS 2 のトピックを中継します。STM32 1 枚でモーター 2 個を速度制御し、**デューティ比は STM32 がエンコーダと PID で決めます**。Pi は目標速度を送るだけです。STM32 側のコードは `firmware/stm32_can/` にあります。
-
-| トピック | 型 | 内容 |
+| 順番 | やること | 読むもの |
 |---|---|---|
-| `stm<ID>/command` | `std_msgs/Float32MultiArray` | [モーター 1, モーター 2] の目標速度 [rad/s]。最新の値を `rate_hz` の周期で送り続ける |
-| `stm<ID>/state` | `std_msgs/Float32MultiArray` | [モーター 1, モーター 2] の実際の速度 [rad/s] |
+| 1 | 言葉の意味をざっと知る(ROS 2、トピック、Docker など) | [docs/glossary.md](docs/glossary.md)(用語集) |
+| 2 | 自分の PC に開発環境を作る(初回 30 分〜1 時間) | [docs/setup.md](docs/setup.md) |
+| 3 | シミュレーションでロボットを動かしてみる | 下の「[いつもの使い方](#いつもの使い方)」 |
+| 4 | 足回りのしくみを知る | [ros2_ws/src/swerve_drive/README.md](ros2_ws/src/swerve_drive/README.md) |
+| 5 | STM32 に書き込んで実機を動かす | [firmware/motor_node_f303k8/README.md](firmware/motor_node_f303k8/README.md) |
+| 6 | コードを変えて、チームに共有する | [docs/development.md](docs/development.md) |
 
-- CAN の ID は、指令が `0x100 + ID`、状態が `0x200 + ID` です(標準 11 ビット)。
-- `command` が `command_timeout_s`(既定 0.5 秒)以上届かないと、空の指令(= 止まる)を送ります。STM32 側も、指令が 100 ms 届かなければ止まります。
-- 設定は `ros2_ws/src/stm_bridge/config/bridge.yaml` です。5 秒ごとに ID ごとの受信数をログに出し、状態が届かない ID があれば警告します。
+困ったときは [docs/troubleshooting.md](docs/troubleshooting.md)(よくあるトラブルと直し方)を見てください。
 
-**実機なしで試す**(PC の `dev` コンテナ内。`sim` は UDP で CAN を真似るので、カーネルに CAN がない WSL でも動きます)
+---
 
-```bash
-ros2 run stm_bridge fake_stm --ids 1 2 &
-ros2 run stm_bridge bridge --ros-args -p can_interface:=sim -p "device_ids:=[1, 2]"
-# 別のターミナルで
-ros2 topic pub stm1/command std_msgs/msg/Float32MultiArray "{data: [0.5, -1.0]}"
-ros2 topic echo stm1/state        # 速度が 0.1 秒ほどで [0.5, -1.0] に近づく。pub を止めると 0 に戻る
-```
+## いつもの使い方
 
-`fake_stm` は、速度制御されたモーターの代わりに、速度が目標に少しずつ近づくように動きます。`rqt_plot` で `stm1/command/data[0]` と `stm1/state/data[0]` を並べると、応答の様子が見えます。STM32 側のコードは `make -C /root/firmware/stm32_can/test`(dev コンテナ内)で PC でもテストできます。
-
-**Pi で動かす**
-
-1. USB-CAN アダプター(candleLight 互換。CANable 2.0 など)を挿すと `can0` ができます(`ip link show can0` で確認)。
-2. `can0` が起動時に自動で up になるように設定します(通信速度は `docker/pi/80-can.network` の `BitRate`)。
-   ```bash
-   sudo cp docker/pi/80-can.network /etc/systemd/network/
-   sudo systemctl restart systemd-networkd
-   ip -details link show can0        # state UP、bitrate 1000000 になっていれば OK
-   ```
-3. ブリッジを起動します(`--network host` なので、コンテナから `can0` がそのまま使えます)。
-   ```bash
-   docker run -d --name stm-bridge --restart unless-stopped --network host --ipc host \
-     robocon/ros2:jazzy ros2 launch stm_bridge bridge.launch.py
-   ```
-   リポジトリを Pi に clone している場合は `docker compose --profile bridge up -d stm-bridge` でも起動できます(足回り一式は `--profile robot up -d drive`)。
-4. STM32 をつないだら、`candump can0`(`sudo apt install can-utils`)で、`101` と `201` のメッセージが流れているか確認できます。
-
-**USB シリアルで動かす**(CAN の部品がないとき。Nucleo なら USB ケーブル 1 本でつながる)
-
-STM32 を `make LINK=uart` でビルドして書き込み、ブリッジの `can_interface` を `serial:/dev/ttyACM0` にします。中身(ID とデータ)は CAN と同じで、トピックもそのままです。
+セットアップ([docs/setup.md](docs/setup.md))が終わっていれば、**PC のターミナルで次を打つだけ**です。
 
 ```bash
-ros2 run stm_bridge bridge --ros-args -p can_interface:=serial:/dev/ttyACM0
+cd ~/e2igmq_test
+git pull origin main      # 最新にする
+./sim.sh                  # シミュレーション + ロボットコンソールが開く
 ```
 
-Pi で compose を使う場合は、`STM_INTERFACE` で通信の線を切り替えます(`stm-bridge` サービスは `/dev` を共有し、`dialout` グループで動きます)。
+ロボットコンソールのウィンドウをクリックして、**W A S D** で動かします。止めるときは、ターミナルで **Ctrl + C** です。
 
-```bash
-STM_INTERFACE=serial:/dev/ttyACM0 docker compose --profile bridge up -d stm-bridge
+### よく使うコマンド
+
+| やりたいこと | コマンド(PC のターミナルで) |
+|---|---|
+| シミュレーション(スワーブ) | `./sim.sh` |
+| シミュレーション(オムニ) | `./sim.sh omni` |
+| STM32 のプログラムまで含めたシミュレーション | `./sim.sh fw` |
+| rviz2 も開く / ゲームパッドでも操縦 | 後ろに `rviz` / `joy` を付ける(例:`./sim.sh fw rviz`) |
+| ギア比と寸法の設定画面 | `ros ros2 run swerve_drive drive_setup` |
+| コンテナ(開発環境)の中に入る | `ros` |
+| STM32 に書き込む | `ros make -C /root/firmware/motor_node_f303k8 APP=swerve NODE_ID=1 flash` |
+| テストを全部動かす | `docker compose run --rm build` |
+
+`ros` は `./dev.sh` の短い名前です(セットアップで登録します)。**コンテナの中**(表示が `root@...#`)では、`ros` を付けずに `ros2 ...` や `make ...` を打ちます。
+
+---
+
+## フォルダの地図
+
+```
+e2igmq_test/
+├── README.md              … このファイル(入口)
+├── docs/                  … 詳しい説明(セットアップ、Pi、困ったとき、用語集など)
+├── dev.sh                 … 開発環境(コンテナ)に入る(ros)
+├── sim.sh                 … シミュレーションを起動する
+├── compose.yaml           … Docker のコンテナの設定(PC 用の dev、Pi 用の drive など)
+├── docker/                … Docker のイメージの作り方(PC 用 / Pi 用)
+├── ros2_ws/src/           … ROS 2 のパッケージ(Python)
+│   ├── swerve_drive/      …   スワーブの足回り + ロボットコンソール + 設定画面
+│   ├── omni_drive/        …   オムニホイールの足回り(スワーブの保険)
+│   ├── stm_bridge/        …   ROS 2 と STM32 をつなぐ(CAN / USB シリアル)
+│   └── my_pkg/ my_cpp_pkg/ …  練習用のサンプル
+├── firmware/              … STM32 のプログラム(C)
+│   ├── stm32_can/         …   部品(通信、速度制御、スワーブの計算)と PC でのテスト
+│   ├── motor_node_f303k8/ …   Nucleo-F303K8 用のプロジェクト(make でビルド・書き込み)
+│   ├── sim/               …   STM32 のプログラムを PC のシミュレーションで動かす部分
+│   └── lib/               …   ST の HAL / CMSIS(git サブモジュール)
+└── .github/workflows/     … CI(push のたびに動く自動テスト)
 ```
 
-PC(WSL)の dev コンテナで使う場合は、先に Windows の USB を WSL に渡します(`firmware/motor_node_f303k8/README.md` の「USB シリアルで PC とつなぐ」)。dev コンテナは `/dev` を共有しているので、`/dev/ttyACM0` がそのまま見えます。
+---
 
-### micro-ROS agent
+## ドキュメント一覧
 
-今は STM32 との通信に `stm_bridge` を使っているので、`micro-ros-agent` は `--profile robot` では起動しません(同じ `/dev/ttyACM0` を取り合うため)。使うときは `docker compose --profile micro-ros up -d micro-ros-agent` で起動します。`microros/micro-ros-agent:jazzy` を使い、`STM32_DEVICE`(既定 `/dev/ttyACM0`)のシリアルを `/dev/stm32` としてコンテナに渡します。デバイス名が変わらないよう `/dev/serial/by-id/...` を指定してください。`restart: unless-stopped` なので、agent が落ちても自動で再起動します。
+| ファイル | 中身 |
+|---|---|
+| [docs/glossary.md](docs/glossary.md) | 用語集(ROS 2、Docker、STM32、制御の言葉) |
+| [docs/setup.md](docs/setup.md) | 開発環境のセットアップ(Windows + WSL / Linux)、Docker の使い方 |
+| [docs/development.md](docs/development.md) | 開発の進め方(ブランチ、PR、テスト、新しい機能の足し方) |
+| [docs/raspberry_pi.md](docs/raspberry_pi.md) | Raspberry Pi で動かす(イメージの作り方、送り方、Wi-Fi での操縦) |
+| [docs/stm_bridge.md](docs/stm_bridge.md) | ROS 2 と STM32 の通信(CAN / USB シリアル、通信の決まり) |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 困ったとき(よくあるエラーと直し方) |
+| [ros2_ws/src/swerve_drive/README.md](ros2_ws/src/swerve_drive/README.md) | スワーブの足回り、ロボットコンソール、設定画面、シミュレーション |
+| [ros2_ws/src/omni_drive/README.md](ros2_ws/src/omni_drive/README.md) | オムニホイールの足回り |
+| [firmware/motor_node_f303k8/README.md](firmware/motor_node_f303k8/README.md) | STM32 のビルド・書き込み・ピン配置・初めて動かす手順 |
+| [firmware/stm32_can/README.md](firmware/stm32_can/README.md) | STM32 の部品の中身と、PID の調整のしかた |
 
-### CI
+---
 
-`.github/workflows/docker-ros2.yml` で、プッシュと PR のたびに amd64 の開発用イメージをビルドして `colcon build` / `colcon test` を実行します。あわせて arm64 ランナーで Pi 用の `runtime` イメージがビルドできるかも確認します。
+## 今の状況
+
+| 項目 | 状況 |
+|---|---|
+| 開発環境(WSL / Fedora)、シミュレーション、ロボットコンソール | ✅ 動作確認済み |
+| STM32 への書き込み、USB シリアルでの通信 | ✅ 実機で確認済み |
+| スワーブ・オムニの足回り(Pi 側の計算) | ✅ シミュレーションで確認済み |
+| スワーブのファームウェア(`APP=swerve`)を実機のモーターで | ⬜ まだ |
+| Raspberry Pi で動かす、Wi-Fi での操縦 | ⬜ まだ |
+| CAN での通信 | ⬜ まだ(先に [クロックの注意](firmware/motor_node_f303k8/README.md#can-を実機で使う前にクロックの精度) を読む) |
+| 自動操縦(Nav2 など) | ⬜ 必要になったら作る |
