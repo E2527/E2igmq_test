@@ -37,7 +37,8 @@ from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtWidgets import QApplication, QGridLayout, QHBoxLayout, QLabel, QPushButton, QWidget
+from PyQt5.QtWidgets import (QApplication, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+                             QSizePolicy, QWidget)
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -135,7 +136,16 @@ class ConsoleNode(Node):
 
 
 class ConsoleWindow(QWidget):
-    """ウィンドウ。キー入力を受け取り、30 回/秒で表示を更新する."""
+    """
+    ウィンドウ。キー入力を受け取り、30 回/秒で表示を更新する.
+
+    ウィンドウの大きさを変えると、中身をまるごと同じ比率で拡大・縮小する
+    (BASE_SIZE のときが倍率 1。文字もボタンも余白も、同じ倍率になる)。
+    """
+
+    BASE_SIZE = (1240, 800)     # 倍率 1 のときのウィンドウの大きさ
+    MIN_SCALE, MAX_SCALE = 0.7, 4.0
+    SCALE_STEP = 0.05           # 倍率はこの刻みで変える(大きさを変えている間、がたがたしないように)
 
     def __init__(self, node):
         super().__init__()
@@ -143,6 +153,7 @@ class ConsoleWindow(QWidget):
         self.keys = set()           # 押しているキー('w' など。Shift は 'shift')
         self.stopped = False
         self.header_key = None      # 見出しを作り直すかどうかの判定用
+        self.k = 0.0                # 今の倍率(最初の apply_scale で決まる)
 
         self.setWindowTitle('ロボットコンソール')
         self.setObjectName('console')
@@ -150,8 +161,9 @@ class ConsoleWindow(QWidget):
         self.setStyleSheet(f'#console {{ background: {th.BG}; }}'
                            f' QLabel {{ color: {th.TEXT}; background: transparent; }}')
         self.setFocusPolicy(Qt.StrongFocus)
-        self.resize(1240, 800)
-        self.setMinimumSize(1040, 740)
+        self.resize(*self.BASE_SIZE)
+        self.setMinimumSize(round(self.BASE_SIZE[0] * self.MIN_SCALE),
+                            round(self.BASE_SIZE[1] * self.MIN_SCALE))
 
         self.robot = widgets.RobotView(node.max_linear, node.max_angular)
         self.speed = widgets.SpeedGauges(node.max_linear, node.max_angular)
@@ -159,32 +171,37 @@ class ConsoleWindow(QWidget):
         self.keypad.keyChanged.connect(self.on_pad_key)
         self.trail = widgets.TrailView()
         self.status = widgets.StatusList()
-        clear = QPushButton('消す')
-        clear.setFocusPolicy(Qt.NoFocus)
-        clear.setCursor(Qt.PointingHandCursor)
-        clear.setFont(th.font(9))
-        clear.setStyleSheet(
-            f'QPushButton {{ color: {th.DIM}; background: {th.TRACK}; border: 1px solid {th.EDGE};'
-            f' border-radius: 10px; padding: 2px 12px; }}'
-            f'QPushButton:hover {{ color: {th.TEXT}; }}')
-        clear.clicked.connect(node.state.clear_trail)
+        self.clear = QPushButton('消す')
+        self.clear.setFocusPolicy(Qt.NoFocus)
+        self.clear.setCursor(Qt.PointingHandCursor)
+        self.clear.clicked.connect(node.state.clear_trail)
+        self.note = QLabel('停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ(電源を切るもの)は、必ず別に付けてください')
+        self.note.setStyleSheet(f'color: {th.FAINT};')
+        # 文が長いので、幅が足りないときは切れてよい(この文のせいでウィンドウを狭くできなくならないように)
+        self.note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.note.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        grid = QGridLayout(self)
-        grid.setContentsMargins(18, 14, 18, 16)
-        grid.setSpacing(14)
-        grid.addLayout(self.make_header(), 0, 0, 1, 3)
-        grid.addWidget(widgets.Card('ロボット', 'ROBOT', self.robot), 1, 0, 2, 1)
-        grid.addWidget(widgets.Card('速さ', 'SPEED', self.speed), 1, 1)
-        grid.addWidget(widgets.Card('操縦', 'DRIVE', self.keypad), 2, 1)
-        grid.addWidget(widgets.Card('軌跡', 'TRAIL', self.trail, clear), 1, 2, 2, 1)
-        note = QLabel('停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ(電源を切るもの)は、必ず別に付けてください')
-        note.setFont(th.font(8))
-        note.setStyleSheet(f'color: {th.FAINT};')
-        grid.addWidget(widgets.Card('状態', 'STATUS', self.status, note), 3, 0, 1, 3)
+        self.cards = [widgets.Card('ロボット', 'ROBOT', self.robot),
+                      widgets.Card('速さ', 'SPEED', self.speed),
+                      widgets.Card('操縦', 'DRIVE', self.keypad),
+                      widgets.Card('軌跡', 'TRAIL', self.trail, self.clear),
+                      widgets.Card('状態', 'STATUS', self.status, self.note)]
+        self.cards[4].head.setStretchFactor(self.note, 1)
+        # 中身の文字の長さで列の幅が変わらないように、幅は列の比(下の 5 : 4 : 5)だけで決める
+        for card in self.cards:
+            card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.grid = QGridLayout(self)
+        self.grid.addLayout(self.make_header(), 0, 0, 1, 3)
+        self.grid.addWidget(self.cards[0], 1, 0, 2, 1)
+        self.grid.addWidget(self.cards[1], 1, 1)
+        self.grid.addWidget(self.cards[2], 2, 1)
+        self.grid.addWidget(self.cards[3], 1, 2, 2, 1)
+        self.grid.addWidget(self.cards[4], 3, 0, 1, 3)
         for column, stretch in enumerate((5, 4, 5)):
-            grid.setColumnStretch(column, stretch)
-        grid.setRowStretch(1, 1)
-        grid.setRowStretch(2, 1)
+            self.grid.setColumnStretch(column, stretch)
+        self.grid.setRowStretch(1, 1)
+        self.grid.setRowStretch(2, 1)
+        self.apply_scale(1.0)
 
         self.view_timer = QTimer(self)
         self.view_timer.timeout.connect(self.refresh)
@@ -195,32 +212,65 @@ class ConsoleWindow(QWidget):
         self.refresh()
 
     def make_header(self):
-        header = QHBoxLayout()
-        header.setSpacing(12)
-        logo = QLabel()
-        logo.setFixedSize(26, 26)
-        logo.setStyleSheet(
-            f'background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {th.ACCENT},'
-            f' stop:1 {th.ACCENT_2}); border-radius: 8px;')
-        title = QLabel('ROBOT CONSOLE')
-        title.setFont(th.font(14, bold=True, spacing=2.5))
+        self.header = QHBoxLayout()
+        self.logo = QLabel()
+        self.title = QLabel('ROBOT CONSOLE')
         self.drive_chip = QLabel('')
-        self.drive_chip.setFont(th.font(8, bold=True, spacing=1.5))
         self.pill = QLabel('')
-        self.pill.setFont(th.font(10, bold=True))
+        self.pill.setAlignment(Qt.AlignCenter)
         self.stop_button = QPushButton('')
         self.stop_button.setFocusPolicy(Qt.NoFocus)     # スペースキーなどで勝手に押されないように
         self.stop_button.setCursor(Qt.PointingHandCursor)
-        self.stop_button.setFont(th.font(12, bold=True))
-        self.stop_button.setMinimumSize(190, 46)
         self.stop_button.clicked.connect(lambda: self.node.publish_stop(not self.stopped))
-        header.addWidget(logo)
-        header.addWidget(title)
-        header.addWidget(self.drive_chip, 0, Qt.AlignVCenter)
-        header.addStretch(1)
-        header.addWidget(self.pill, 0, Qt.AlignVCenter)
-        header.addWidget(self.stop_button)
-        return header
+        self.header.addWidget(self.logo)
+        self.header.addWidget(self.title)
+        self.header.addWidget(self.drive_chip, 0, Qt.AlignVCenter)
+        self.header.addStretch(1)
+        self.header.addWidget(self.pill, 0, Qt.AlignVCenter)
+        self.header.addWidget(self.stop_button)
+        return self.header
+
+    # ---- 大きさ ----
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        k = min(self.width() / self.BASE_SIZE[0], self.height() / self.BASE_SIZE[1])
+        k = max(self.MIN_SCALE, min(self.MAX_SCALE, k))
+        self.apply_scale(math.floor(k / self.SCALE_STEP + 1e-6) * self.SCALE_STEP)
+
+    def apply_scale(self, k):
+        """文字・ボタン・余白・各カードを、倍率 k の大きさにする."""
+        if abs(k - self.k) < 1e-6:
+            return
+        self.k = k
+
+        def px(value):
+            return round(value * k)
+
+        self.grid.setContentsMargins(px(18), px(14), px(18), px(16))
+        self.grid.setSpacing(px(14))
+        self.header.setSpacing(px(12))
+        self.logo.setFixedSize(px(26), px(26))
+        self.logo.setStyleSheet(
+            f'background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {th.ACCENT},'
+            f' stop:1 {th.ACCENT_2}); border-radius: {px(8)}px;')
+        self.title.setFont(th.font(14, bold=True, spacing=2.5, scale=k))
+        self.drive_chip.setFont(th.font(8, bold=True, spacing=1.5, scale=k))
+        self.pill.setFont(th.font(10, bold=True, scale=k))
+        self.pill.setFixedHeight(px(34))
+        self.stop_button.setFont(th.font(12, bold=True, scale=k))
+        self.stop_button.setFixedSize(px(190), px(46))
+        self.clear.setFont(th.font(9, scale=k))
+        self.clear.setStyleSheet(
+            f'QPushButton {{ color: {th.DIM}; background: {th.TRACK}; border: 1px solid {th.EDGE};'
+            f' border-radius: {px(10)}px; padding: {px(2)}px {px(12)}px; }}'
+            f'QPushButton:hover {{ color: {th.TEXT}; }}')
+        self.note.setFont(th.font(8, scale=k))
+        for card in self.cards:
+            card.set_scale(k)
+        self.header_key = None      # 見出しの色付きの部品も、新しい大きさで作り直す
+        if self.isVisible():
+            self.update_header(self.node.state.snapshot(time.monotonic()))
 
     # ---- 表示 ----
 
@@ -240,25 +290,30 @@ class ConsoleWindow(QWidget):
         if key == self.header_key:      # 変わったときだけ作り直す
             return
         self.header_key = key
+
+        def px(value):
+            return round(value * self.k)
+
         hex_color = th.LEVEL_COLOR[snap.level]
         self.pill.setText(f'●  {snap.summary}')
         self.pill.setStyleSheet(
             f'color: {hex_color}; background: {th.rgba(hex_color, 34)};'
-            f' border: 1px solid {th.rgba(hex_color, 110)}; border-radius: 17px;'
-            f' padding: 6px 16px;')
+            f' border: 1px solid {th.rgba(hex_color, 110)}; border-radius: {px(34) // 2 - 1}px;'
+            f' padding: 0px {px(16)}px;')
         names = {'swerve': 'SWERVE  スワーブ', 'omni': 'OMNI  オムニ'}
         self.drive_chip.setText(names.get(snap.drive, ''))
         self.drive_chip.setStyleSheet(
-            f'color: {th.ACCENT}; background: {th.rgba(th.ACCENT, 26)}; border-radius: 9px;'
-            f' padding: 3px 10px;' if snap.drive else 'background: transparent;')
+            f'color: {th.ACCENT}; background: {th.rgba(th.ACCENT, 26)};'
+            f' border-radius: {px(9)}px; padding: {px(3)}px {px(10)}px;'
+            if snap.drive else 'background: transparent;')
         if snap.stopped:
             base, hover, text, label = th.GOOD, '#5fe3b4', '#04130d', '▶  再開'
         else:
             base, hover, text, label = th.BAD, '#ff7a8c', '#ffffff', '■  停止(Esc)'
         self.stop_button.setText(label)
         self.stop_button.setStyleSheet(
-            f'QPushButton {{ background: {base}; color: {text}; border: none; border-radius: 14px;'
-            f' padding: 8px 26px; }} QPushButton:hover {{ background: {hover}; }}')
+            f'QPushButton {{ background: {base}; color: {text}; border: none;'
+            f' border-radius: {px(14)}px; }} QPushButton:hover {{ background: {hover}; }}')
 
     # ---- キー ----
 

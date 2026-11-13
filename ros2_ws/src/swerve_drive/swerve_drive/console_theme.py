@@ -29,13 +29,23 @@ STALE = '#5d6779'       # 届いていない
 LEVEL_COLOR = {cs.OK: GOOD, cs.WARN: WARN, cs.ERROR: BAD, cs.STALE: STALE}
 
 FONT_FAMILY = 'Noto Sans CJK JP'    # なければ、OS が近いフォントを選ぶ
+PX_PER_POINT = 96.0 / 72.0          # font() の size(ポイント)を、画面の点の数に直す倍率
 
 
-def font(size, bold=False, spacing=0.0):
-    f = QFont(FONT_FAMILY, size)
+def font(size, bold=False, spacing=0.0, scale=1.0):
+    """
+    フォントを作る.
+
+    scale … ウィンドウの大きさに合わせた倍率。QLabel やボタンに付けるときだけ渡す
+    (自分で絵を描く部品は、絵ごと拡大するので渡さない)
+    """
+    f = QFont(FONT_FAMILY)
+    # 大きさは「ポイント」ではなく「画面の点の数」で決める。ポイントだと、PC の文字の大きさの設定
+    # (DPI)によって文字だけが大きくなり、枠に入りきらずに下が切れる
+    f.setPixelSize(max(1, round(size * PX_PER_POINT * scale)))
     f.setBold(bold)
     if spacing:
-        f.setLetterSpacing(QFont.AbsoluteSpacing, spacing)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, spacing * scale)
     return f
 
 
