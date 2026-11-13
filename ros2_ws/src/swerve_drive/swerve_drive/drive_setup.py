@@ -7,8 +7,9 @@
     firmware/motor_node_f303k8/Core/Inc/app_config.h … STM32(エンコーダのカウント数、ギア比、モーターの上限)
     ros2_ws/src/swerve_drive/config/swerve.yaml       … Pi(モジュールの数と位置・ID、タイヤの半径、速さの上限)
 
-モジュールの数は 2・3・4・6 個から選んで「この並べ方にする」を押すと、表に位置と ID が入る。
+モジュールの数(2・3・4・6 個)や間隔を変えると、下の表(名前・ID・位置)がすぐ作り直される。
 表は直接書き換えてもよい(行を足す・消すこともできる)ので、ほかの並べ方にもできる。
+表を自分で書き換えたあとは、間隔を変えても表はそのまま(「表を作り直す」を押すと選んだ並べ方に戻る)。
 
 タイヤの速さの上限(max_wheel_speed)は、STM32 が出せる速さ(モーターの上限 × タイヤのギア比)から
 自動で決める。保存したあと、STM32 は書き込み直し(make flash)、Pi 側は起動し直すと反映される
@@ -48,6 +49,7 @@ class SetupWindow(QWidget):
         self.app_config = app_config
         self.swerve_yaml = swerve_yaml
         self.setWindowTitle('ギア比と寸法の設定')
+        self.custom = False         # 表を自分で書き換えたか
         self.load()
 
         layout = QVBoxLayout(self)
@@ -85,9 +87,15 @@ class SetupWindow(QWidget):
         self.coupling.setValue(self.fw['APP_SWERVE_COUPLING'])
         self.motor_max.setValue(self.fw['APP_SWERVE_MAX_MOTOR_SPEED'])
         length, width = self.spacing()
+        self.custom = True          # 読み直している間は、表を作り直さない(下の fill_table で決まる)
         self.length.setValue(length * 1000)
         self.width.setValue(width * 1000)
         self.radius.setValue(self.pi['wheel_radius'] * 1000)
+        index = self.count.findData(len(self.pi['module_names']))
+        if index >= 0:
+            self.count.blockSignals(True)
+            self.count.setCurrentIndex(index)
+            self.count.blockSignals(False)
         self.fill_table(self.pi['module_names'], self.pi['device_ids'], self.pi['module_x'],
                         self.pi['module_y'])
 
@@ -101,6 +109,9 @@ class SetupWindow(QWidget):
     COLUMNS = ('名前', 'STM32 の ID', '前 [mm]', '左 [mm]')
 
     def fill_table(self, names, ids, xs, ys):
+        # 表が「選んだ並べ方」のままか(そうなら、間隔を変えたときに表も作り直す)
+        count = len(names)
+        self.custom = count not in sf.LAYOUTS or not self.same_as_layout(names, ids, xs, ys)
         self.table.blockSignals(True)
         self.table.setRowCount(len(names))
         for row, values in enumerate(zip(names, ids, xs, ys)):
@@ -110,6 +121,22 @@ class SetupWindow(QWidget):
                 self.table.setItem(row, col, QTableWidgetItem(text))
         self.table.blockSignals(False)
         self.update_result()
+
+    @staticmethod
+    def same_as_layout(names, ids, xs, ys):
+        """表の中身が、その数の決まった並べ方(間隔は表から求める)と同じかどうか."""
+        layout = sf.module_layout(len(names), max(xs) - min(xs), max(ys) - min(ys))
+        close = all(abs(a - b) < 1e-6 for a, b in zip(xs + ys, layout[2] + layout[3]))
+        return list(names) == layout[0] and list(ids) == layout[1] and close
+
+    def on_table_edited(self, *_):
+        self.custom = True
+        self.update_result()
+
+    def on_layout_changed(self, *_):
+        """数や間隔を変えたとき。表を自分で書き換えていなければ、表も作り直す."""
+        if not self.custom:
+            self.use_layout()
 
     def read_table(self):
         """表から (名前, ID, x [m], y [m]) の並びを読む。数でないところがあれば ValueError."""
@@ -140,12 +167,12 @@ class SetupWindow(QWidget):
         for col, text in enumerate((f'module_{row + 1}', str(row + 1), '0', '0')):
             self.table.setItem(row, col, QTableWidgetItem(text))
         self.table.blockSignals(False)
-        self.update_result()
+        self.on_table_edited()
 
     def remove_row(self):
         row = self.table.currentRow()
         self.table.removeRow(row if row >= 0 else self.table.rowCount() - 1)
-        self.update_result()
+        self.on_table_edited()
 
     def save(self):
         fw = {'APP_COUNTS_PER_REV': self.counts.value(),
@@ -180,7 +207,8 @@ class SetupWindow(QWidget):
             return
         QMessageBox.information(
             self, '保存しました',
-            f'{self.app_config}\n{self.swerve_yaml}\nを書き換えました。\n\n'
+            f'{self.app_config}\n{self.swerve_yaml}\nを書き換えました'
+            f'(モジュール {len(names)} 個: {", ".join(names)})。\n\n'
             f'・STM32: モジュールごとに書き込み直す(make APP=swerve NODE_ID=… flash。'
             f'NODE_ID は {", ".join(str(i) for i in ids)})\n'
             '・Pi / PC: 起動し直す(./sim.sh fw なら、起動し直すだけで両方反映)')
@@ -231,9 +259,13 @@ class SetupWindow(QWidget):
         form.addRow('モジュールの前後の間隔(中心から中心)', self.length)
         self.width = spin_box(width * 1000, 0, 5000, 1, 5, 'mm')
         form.addRow('モジュールの左右の間隔(中心から中心)', self.width)
-        use = QPushButton('↓ この並べ方にする(表を作り直す)')
+        use = QPushButton('↓ 表を作り直す(自分で書き換えた表を、選んだ並べ方に戻す)')
         use.clicked.connect(self.use_layout)
         form.addRow('', use)
+        # 数を選んだら、すぐ表を作り直す。間隔は、表を自分で書き換えていないときだけ反映する
+        self.count.currentIndexChanged.connect(self.use_layout)
+        self.length.valueChanged.connect(self.on_layout_changed)
+        self.width.valueChanged.connect(self.on_layout_changed)
 
         # 表: 1 行が 1 モジュール。直接書き換えてもよい
         self.table = QTableWidget(0, len(self.COLUMNS))
@@ -241,7 +273,7 @@ class SetupWindow(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(190)
-        self.table.itemChanged.connect(self.update_result)
+        self.table.itemChanged.connect(self.on_table_edited)
         form.addRow(self.table)
         rows = QHBoxLayout()
         add = QPushButton('行を足す')
