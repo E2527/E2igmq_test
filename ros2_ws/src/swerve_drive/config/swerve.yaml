@@ -7,6 +7,9 @@
 #         |    base_link   |       ← ロボットの中心
 #     rear_left  ── rear_right
 #
+#   モジュールの数は、下の 4 つの並び(module_names / device_ids / module_x / module_y)の長さで決まる。
+#   4 つの数をそろえれば 2 個以上なら何個でもよい(設定画面 drive_setup で選ぶと簡単)
+#
 swerve_drive:
   ros__parameters:
     module_names: [front_left, front_right, rear_left, rear_right]
