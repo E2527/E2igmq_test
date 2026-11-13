@@ -31,11 +31,18 @@ LEVEL_COLOR = {cs.OK: GOOD, cs.WARN: WARN, cs.ERROR: BAD, cs.STALE: STALE}
 FONT_FAMILY = 'Noto Sans CJK JP'    # なければ、OS が近いフォントを選ぶ
 
 
-def font(size, bold=False, spacing=0.0):
-    f = QFont(FONT_FAMILY, size)
+def font(size, bold=False, spacing=0.0, scale=1.0):
+    """
+    フォントを作る.
+
+    scale … ウィンドウの大きさに合わせた倍率。QLabel やボタンに付けるときだけ渡す
+    (自分で絵を描く部品は、絵ごと拡大するので渡さない)
+    """
+    f = QFont(FONT_FAMILY)
+    f.setPointSizeF(size * scale)
     f.setBold(bold)
     if spacing:
-        f.setLetterSpacing(QFont.AbsoluteSpacing, spacing)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, spacing * scale)
     return f
 
 

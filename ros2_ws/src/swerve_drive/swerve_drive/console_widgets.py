@@ -9,6 +9,10 @@
     StatusList  … 状態の一覧(/diagnostics)
 
 どの部品も set_snapshot() で console_state.Snapshot を受け取って、自分で絵を描く。
+
+ウィンドウの大きさが変わったときは、ウィンドウが各部品の set_scale(倍率) を呼ぶ。
+絵は「倍率 1 のときの大きさ」で描いておき、まるごと拡大・縮小する
+(文字・線・すき間の比が、どの大きさでも同じになる)。
 """
 
 import math
@@ -27,61 +31,89 @@ class Card(QFrame):
     def __init__(self, title, tag, body, action=None):
         super().__init__()
         self.setObjectName('card')
+        self.body = body
+        self.box = QVBoxLayout(self)
+        self.head = QHBoxLayout()
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet(f'color: {th.TEXT};')
+        self.tag_label = QLabel(tag)
+        self.tag_label.setStyleSheet(f'color: {th.FAINT};')
+        self.head.addWidget(self.title_label)
+        self.head.addWidget(self.tag_label)
+        self.head.addStretch(1)
+        if action is not None:
+            self.head.addWidget(action)
+        self.box.addLayout(self.head)
+        self.box.addWidget(body, 1)
+        self.set_scale(1.0)
+
+    def set_scale(self, k):
+        """枠・見出し・中の部品を、倍率 k の大きさにする."""
         self.setStyleSheet(
             f'#card {{ background: {th.CARD}; border: 1px solid {th.EDGE};'
-            f' border-radius: 18px; }}')
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 16)
-        layout.setSpacing(10)
-        head = QHBoxLayout()
-        head.setSpacing(10)
-        title_label = QLabel(title)
-        title_label.setFont(th.font(11, bold=True))
-        title_label.setStyleSheet(f'color: {th.TEXT};')
-        tag_label = QLabel(tag)
-        tag_label.setFont(th.font(8, bold=True, spacing=2.0))
-        tag_label.setStyleSheet(f'color: {th.FAINT};')
-        head.addWidget(title_label)
-        head.addWidget(tag_label)
-        head.addStretch(1)
-        if action is not None:
-            head.addWidget(action)
-        layout.addLayout(head)
-        layout.addWidget(body, 1)
+            f' border-radius: {round(18 * k)}px; }}')
+        self.box.setContentsMargins(round(18 * k), round(14 * k), round(18 * k), round(16 * k))
+        self.box.setSpacing(round(10 * k))
+        self.head.setSpacing(round(10 * k))
+        self.title_label.setFont(th.font(11, bold=True, scale=k))
+        self.tag_label.setFont(th.font(8, bold=True, spacing=2.0, scale=k))
+        self.body.set_scale(k)
 
 
 class _View(QWidget):
     """Snapshot を受け取って描き直す部品の共通部分."""
 
+    BASE_MIN = (200, 200)       # 倍率 1 のときの、いちばん小さい大きさ
+
     def __init__(self):
         super().__init__()
         self.snap = cs.Snapshot()
+        self.k = 1.0                # ウィンドウの大きさに合わせた倍率
+        self.set_scale(1.0)
 
     def set_snapshot(self, snap):
         self.snap = snap
         self.update()
 
+    def set_scale(self, k):
+        self.k = k
+        self.setMinimumSize(round(self.BASE_MIN[0] * k), round(self.BASE_MIN[1] * k))
+        self.update()
+
+    def lw(self):
+        """倍率 1 のときの大きさに直した、幅."""
+        return self.width() / self.k
+
+    def lh(self):
+        """倍率 1 のときの大きさに直した、高さ."""
+        return self.height() / self.k
+
     def painter(self):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.TextAntialiasing)
+        p.scale(self.k, self.k)     # ここから先は、倍率 1 のときの大きさで描けばよい
         return p
 
 
 class RobotView(_View):
     """ロボットを上から見た図。画面の上がロボットの前."""
 
+    BASE_MIN = (280, 300)
+    TOP = 54.0          # 上の数字(速さ・向き)の高さ
+    BOTTOM = 22.0       # 下の凡例の高さ
+
     def __init__(self, max_linear, max_angular):
         super().__init__()
         self.max_linear = max_linear
         self.max_angular = max_angular
-        self.setMinimumSize(280, 280)
 
     def paintEvent(self, _event):
         p = self.painter()
-        w, h = self.width(), self.height()
-        side = min(w, h)
-        cx, cy = w / 2.0, h / 2.0 + 8.0
+        w, h = self.lw(), self.lh()
+        # 絵は、上の数字(TOP)と下の凡例(BOTTOM)の間のまん中に描く
+        side = min(w, h - self.TOP - self.BOTTOM)
+        cx, cy = w / 2.0, self.TOP + (h - self.TOP - self.BOTTOM) / 2.0
 
         # 背景: レーダーのような目盛り
         p.setBrush(Qt.NoBrush)
@@ -231,15 +263,13 @@ class RobotView(_View):
 class TrailView(_View):
     """走った軌跡。起動したときの前が、画面の上."""
 
-    GRID_STEPS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
+    BASE_MIN = (240, 240)
 
-    def __init__(self):
-        super().__init__()
-        self.setMinimumSize(240, 240)
+    GRID_STEPS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
 
     def paintEvent(self, _event):
         p = self.painter()
-        w, h = self.width(), self.height()
+        w, h = self.lw(), self.lh()
         snap = self.snap
         x, y, yaw = snap.pose
         points = snap.trail + [(x, y)]
@@ -319,19 +349,23 @@ class TrailView(_View):
 class SpeedGauges(_View):
     """前後・左右・回転の、指令の速さ(白い印)と実際の速さ(バーと数字)."""
 
+    BASE_MIN = (260, 180)
+    MAX_ROW_H = 96.0
+
     def __init__(self, max_linear, max_angular):
         super().__init__()
         self.rows = (('前後', 'm/s', max_linear), ('左右', 'm/s', max_linear),
                      ('回転', 'rad/s', max_angular))
-        self.setMinimumSize(260, 180)
 
     def paintEvent(self, _event):
         p = self.painter()
-        w, h = self.width(), self.height()
-        row_h = h / len(self.rows)
+        w, h = self.lw(), self.lh()
+        # 縦に長いときは、行の間を広げすぎずに、まとめてまん中に置く
+        row_h = min(h / len(self.rows), self.MAX_ROW_H)
+        top = (h - row_h * len(self.rows)) / 2.0
         snap = self.snap
         for i, (label, unit, limit) in enumerate(self.rows):
-            mid = row_h * (i + 0.5)
+            mid = top + row_h * (i + 0.5)
             command = snap.command[i]
             actual = snap.actual[i] if snap.actual is not None else None
             slow = actual is not None and abs(command) > 0.05 and abs(actual) < 0.8 * abs(command)
@@ -378,6 +412,8 @@ class SpeedGauges(_View):
 class KeyPad(_View):
     """WASD のキー。押しているキーが光る。マウスで押してもよい."""
 
+    BASE_MIN = (250, 170)
+
     keyChanged = pyqtSignal(str, bool)     # (キーの名前, 押した / 離した)
 
     # (キーの名前, 表示, 動き, 行, 列)
@@ -392,7 +428,6 @@ class KeyPad(_View):
         self.stopped = False        # 停止ボタンで止まっているか
         self.hint = hint            # 右下に出す、速さの説明
         self.mouse_key = None
-        self.setMinimumSize(250, 170)
 
     def set_keys(self, active, focused, stopped):
         self.active = set(active)
@@ -402,7 +437,7 @@ class KeyPad(_View):
 
     def rects(self):
         """キーの名前 → 画面上の四角."""
-        w, h = self.width(), self.height() - self.FOOTER
+        w, h = self.lw(), self.lh() - self.FOOTER
         gap = 8.0
         key = min((w - 2 * gap) / 3.0, (h - 2 * gap) / 2.7, 78.0)
         x0 = (w - (3 * key + 2 * gap)) / 2.0
@@ -444,7 +479,7 @@ class KeyPad(_View):
             p.drawText(QRectF(rect.left(), rect.top() + rect.height() * 0.58, rect.width(),
                               rect.height() * 0.32), Qt.AlignCenter, action)
 
-        y = self.height() - self.FOOTER / 2.0 + 2.0
+        y = self.lh() - self.FOOTER / 2.0 + 2.0
         if self.stopped:
             dot, ink, text = th.WARN, th.WARN, '停止中(「再開」を押すまで動きません)'
         elif self.focused:
@@ -456,17 +491,18 @@ class KeyPad(_View):
         p.drawEllipse(QPointF(6, y), 4, 4)
         p.setPen(th.color(ink))
         p.setFont(th.font(9))
-        p.drawText(QRectF(16, y - 10, self.width(), 20), Qt.AlignLeft | Qt.AlignVCenter, text)
+        p.drawText(QRectF(16, y - 10, self.lw(), 20), Qt.AlignLeft | Qt.AlignVCenter, text)
         metrics = QFontMetricsF(p.font())
         if 16 + metrics.horizontalAdvance(text) + 16 + metrics.horizontalAdvance(self.hint) < \
-                self.width():      # 入るときだけ、右に速さの説明を出す
+                self.lw():      # 入るときだけ、右に速さの説明を出す
             p.setPen(th.color(th.FAINT))
-            p.drawText(QRectF(0, y - 10, self.width() - 2, 20), Qt.AlignRight | Qt.AlignVCenter,
+            p.drawText(QRectF(0, y - 10, self.lw() - 2, 20), Qt.AlignRight | Qt.AlignVCenter,
                        self.hint)
 
     def mousePressEvent(self, event):
+        pos = QPointF(event.pos()) / self.k     # 倍率 1 のときの位置に直す
         for name, rect in self.rects().items():
-            if rect.contains(event.pos()):
+            if rect.contains(pos):
                 self.mouse_key = name
                 self.keyChanged.emit(name, True)
                 return
@@ -482,13 +518,14 @@ class StatusList(_View):
 
     ROW_H = 28.0
 
-    def __init__(self):
-        super().__init__()
-        self.setFixedHeight(int(self.ROW_H * 4))
+    def set_scale(self, k):
+        self.k = k
+        self.setFixedHeight(round(self.ROW_H * 4 * k))
+        self.update()
 
     def paintEvent(self, _event):
         p = self.painter()
-        w, h = self.width(), self.height()
+        w, h = self.lw(), self.lh()
         rows = self.snap.rows
         if not rows:
             p.setPen(th.color(th.DIM))
