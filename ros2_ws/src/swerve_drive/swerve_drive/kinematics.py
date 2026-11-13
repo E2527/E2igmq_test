@@ -48,14 +48,16 @@ class SwerveKinematics:
     def __init__(self, modules, wheel_radius: float, max_wheel_speed: float,
                  stop_threshold: float = 1e-3):
         """
-        modules: Module の並び(例: 左前・右前・左後・右後).
+        modules: Module の並び(2 個以上。例: 左前・右前・左後・右後).
 
         wheel_radius    … タイヤの半径 [m]
         max_wheel_speed … タイヤの速さの上限 [rad/s]。超えるときは全モジュールを同じ割合で遅くする
         stop_threshold  … これより遅い [m/s] モジュールは止まっているとみなし、向きを変えない
         """
-        if not modules:
-            raise ValueError('モジュールが 1 個もありません')
+        if len(modules) < 2:
+            raise ValueError('モジュールは 2 個以上にしてください(1 個だと回転が求められません)')
+        if len({(round(m.x, 6), round(m.y, 6)) for m in modules}) < 2:
+            raise ValueError('全部のモジュールが同じ位置にあります(module_x / module_y を確認)')
         if wheel_radius <= 0.0 or max_wheel_speed <= 0.0:
             raise ValueError('wheel_radius と max_wheel_speed は正の値にしてください')
         self.modules = list(modules)

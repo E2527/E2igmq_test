@@ -97,3 +97,23 @@ def test_rejects_bad_settings():
         SwerveKinematics([], wheel_radius=R, max_wheel_speed=1.0)
     with pytest.raises(ValueError):
         SwerveKinematics(MODULES, wheel_radius=0.0, max_wheel_speed=1.0)
+    with pytest.raises(ValueError):
+        SwerveKinematics(MODULES[:1], wheel_radius=R, max_wheel_speed=1.0)
+    with pytest.raises(ValueError):
+        SwerveKinematics([Module('a', 0.1, 0.0), Module('b', 0.1, 0.0)], wheel_radius=R,
+                         max_wheel_speed=1.0)
+
+
+@pytest.mark.parametrize('modules', [
+    [Module('front', 0.25, 0.0), Module('rear', -0.25, 0.0)],                         # 2 個
+    [Module('front', 0.2, 0.0), Module('rl', -0.2, 0.15), Module('rr', -0.2, -0.15)],  # 3 個
+    [Module('fl', 0.3, 0.2), Module('fr', 0.3, -0.2), Module('ml', 0.0, 0.2),
+     Module('mr', 0.0, -0.2), Module('rl', -0.3, 0.2), Module('rr', -0.3, -0.2)],     # 6 個
+])
+def test_any_number_of_modules(modules):
+    kin = SwerveKinematics(modules, wheel_radius=R, max_wheel_speed=100.0)
+    for twist in ((1.0, 0.0, 0.0), (0.2, -0.5, 0.0), (0.0, 0.0, 1.5), (0.4, 0.3, -0.8)):
+        cmds = kin.inverse(*twist, [0.0] * len(modules))
+        assert len(cmds) == len(modules)
+        result = kin.forward([c.angle for c in cmds], [c.wheel_speed for c in cmds])
+        assert all(approx(a, b) for a, b in zip(result, twist))
