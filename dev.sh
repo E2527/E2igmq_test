@@ -47,6 +47,10 @@ if [ -t 0 ] && [ -t 1 ]; then
     tty=-it
 fi
 if [ $# -eq 0 ]; then
+    # ros2_ws/egg/bashrc があれば、それを読んで入る(中で ~/.bashrc も読む)
+    if [ -f ros2_ws/egg/bashrc ]; then
+        exec docker exec "$tty" ros_dev bash --rcfile /root/ros2_ws/egg/bashrc
+    fi
     exec docker exec "$tty" ros_dev bash
 fi
 # entrypoint.sh が ROS とワークスペースの setup.bash を読み込んでからコマンドを実行する
