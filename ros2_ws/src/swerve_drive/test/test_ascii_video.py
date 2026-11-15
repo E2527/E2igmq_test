@@ -59,22 +59,6 @@ def test_find_video_and_audio(tmp_path):
     assert av.find_video([str(folder)], {av.VIDEO_ENV: str(folder / 'zzz.asc.gz')}) is None
 
 
-def test_secret_code():
-    code = av.SecretCode()
-    assert not any(code.press(k) for k in av.SECRET_KEYS[:-1])
-    assert code.press(av.SECRET_KEYS[-1])
-    # まちがえたあとでも、続けて正しく押せば開く
-    assert not code.press('left')
-    assert [code.press(k) for k in av.SECRET_KEYS][-1]
-    assert not code.press('right')                  # 開いたあとは、最初からやり直し
-
-
-def test_click_counter():
-    clicks = av.ClickCounter(count=3, within_s=1.0)
-    assert [clicks.click(t) for t in (0.0, 0.3, 0.6)] == [False, False, True]
-    assert [clicks.click(t) for t in (5.0, 5.9, 7.5)] == [False, False, False]     # 間があいた
-
-
 def test_demo_frames_are_uniform():
     frames = av.demo_frames(columns=60, rows=16, count=8)
     assert len(frames) == 8 and len(set(frames)) > 1

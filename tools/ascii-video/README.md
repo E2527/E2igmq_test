@@ -59,31 +59,28 @@ python3 render_mp4.py MV_ascii.asc.gz -a MV_ascii.m4a -o MV_ascii_video.mp4 --bi
 
 ---
 
-## ロボットコンソールの隠し機能で流す(このリポジトリで足した部分)
+## 隠し機能として流す(このリポジトリで足した部分)
 
-変換した `.asc.gz` を `ros2_ws/egg/` に置くと、ロボットコンソール(`./sim.sh`)の中から流せます。
+変換した `.asc.gz` を `ros2_ws/egg/` に置くと、ターミナルの隠しコマンドで流せます(今は `MV_ascii` が入っています)。
 
 ```bash
-# 1) 変換する(ホストで。opencv-python と ffmpeg が必要)
+# 変換する(ホストで。opencv-python と ffmpeg が必要)
 python3 tools/ascii-video/asciiplay.py convert MV_完成版.mp4 -o ros2_ws/egg/MV_ascii.asc.gz
 #   -> ros2_ws/egg/MV_ascii.asc.gz と ros2_ws/egg/MV_ascii.m4a ができる
-
-# 2) コンソールを起動する
-./sim.sh
 ```
 
-開き方(どちらでも):
+**開き方**:ターミナルで、**Ctrl を押しながら**決まった文字を順番に打ちます(文字は `ros2_ws/egg/egg.bash` に書いてあります)。
 
-- ロボットコンソールのウィンドウで、矢印キーを **↑ ↑ ↓ ↓ ← → ← →** の順に押す
-- 左上の四角いマークを、2 秒の間に **5 回クリック**する
+- dev コンテナ(`ros` で入ったターミナル)では、何もしなくても使えます(dev イメージを作り直したあと)。
+- ホストの PC のターミナルでも使うときは、`~/.bashrc` に `source ~/e2igmq_test/ros2_ws/egg/egg.bash` を足します。
+- ロボットコンソール(`./sim.sh`)からは開きません。
+- 直接開くなら `ros ros2 run swerve_drive ascii_player` です。
 
 別のウィンドウが開いて、動画が流れます。閉じるには **Esc**、**Q**、またはクリック。最後まで流れると自動で閉じます。
 
-- `.asc.gz` を置いていないときは、代わりに短い模様が流れます。
-- カラーで変換したファイルは、白黒として流れます。
+- `.asc.gz` がないときは、代わりに短い模様が流れます。カラーで変換したファイルは、白黒として流れます。
 - **音**:同じ名前の `.m4a` があれば、`ffplay` で鳴らします(dev イメージに入っています。WSL は WSLg、Fedora などは PipeWire を通して PC のスピーカーから出ます)。音が出ないときは [docs/troubleshooting.md](../../docs/troubleshooting.md) を見てください。
-- **安全**:隠し機能のウィンドウを開くと、コンソールは押していたキーを離したことにするので、ロボットは止まります。矢印キーは操縦に使っていないので、コマンドを打ってもロボットは動きません。
+- ROS のノードではない(トピックを出さない)ので、ロボットの動きには関係しません。
+- `egg.bash` を読み込むと、Ctrl+S(端末の画面を止める)と Ctrl+O(履歴の実行)が使えなくなります。
 - 別のファイルを流したいときは、環境変数 `ROBOT_CONSOLE_EGG` にファイルの場所を入れます。
 - 中身は `ros2_ws/src/swerve_drive/swerve_drive/ascii_video.py`(データ)と `ascii_player.py`(ウィンドウ)です。
-
-**動画のファイルを git に入れるかどうか**:4 分・横 120 文字だと `.asc.gz` が約 10 MB、`.m4a` が数 MB になります。git に入れると全員の clone が重くなるので、入れるなら横 80 文字・15 fps(`-w 80 --fps 15`)などで小さくするのがおすすめです。

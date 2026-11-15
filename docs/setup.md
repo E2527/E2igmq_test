@@ -120,7 +120,7 @@ sim
 | ROS 2 Jazzy、rviz2 | 基本 | `rviz2` |
 | ゲームパッド、キーボードで操縦する部品 | 操縦 | `sim joy` |
 | PyQt5、日本語フォント | ロボットコンソール、設定画面 | `sim` |
-| ffmpeg(ffplay)、pulseaudio-utils | 音を鳴らす(ロボットコンソールの隠し機能の動画の音)。音は WSLg / PipeWire を通して PC から出る | `pactl info`(「Server Name」が出れば PC の音につながっている) |
+| ffmpeg(ffplay)、pulseaudio-utils | 音を鳴らす(隠し機能の動画の音)。音は WSLg / PipeWire を通して PC から出る | `pactl info`(「Server Name」が出れば PC の音につながっている) |
 | rqt_robot_monitor | `/diagnostics` を標準のツールで見る | `ros2 run rqt_robot_monitor rqt_robot_monitor` |
 | ARM 用の gcc、openocd | STM32 のビルドと書き込み | `make -C /root/firmware/motor_node_f303k8` |
 | MoveIt 2 | アームの動作計画 | `ros2 launch moveit_resources_panda_moveit_config demo.launch.py`(rviz2 の MotionPlanning で Plan & Execute) |

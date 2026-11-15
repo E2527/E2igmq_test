@@ -33,6 +33,7 @@ setup(
             'firmware_modules = swerve_drive.firmware_modules:main',
             'robot_console = swerve_drive.robot_console:main',
             'drive_setup = swerve_drive.drive_setup:main',
+            'ascii_player = swerve_drive.ascii_player:main',
         ],
     },
 )

@@ -1,22 +1,24 @@
 """
-文字アートの動画を流すウィンドウ(ロボットコンソールの隠し機能).
+文字アートの動画を流すウィンドウ(隠し機能).
+
+    ros2 run swerve_drive ascii_player      # ふつうは ros2_ws/egg/egg.bash の隠しコマンドから開く
 
 データは ascii_video.py が読む。動画のファイルがなければ、短い模様をくり返す。
 音声(動画と同じ名前の .m4a)は、ffplay が入っていれば鳴らす。
+閉じるには: Esc、Q、クリック、またはウィンドウを閉じる。最後まで流れると自動で閉じる。
 
-閉じるには: Esc、Q、クリック、またはウィンドウを閉じる。
-
-このウィンドウを開くと、コンソールは「ほかのウィンドウに移った」と判断して、
-押していたキーを離したことにする(ロボットは止まる)。
+ROS のノードではない(トピックを出さない)ので、ロボットの動きには関係しない。
 """
 
+import signal
 import shutil
 import subprocess
+import sys
 import time
 
 from PyQt5.QtCore import QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPainter
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QApplication, QWidget
 
 from . import ascii_video as av
 
@@ -120,3 +122,14 @@ class AsciiPlayer(QWidget):
         if self.audio is not None and self.audio.poll() is None:
             self.audio.terminate()
         super().closeEvent(event)
+
+
+def main():
+    app = QApplication(sys.argv[:1])
+    player = AsciiPlayer(av.find_video())
+    signal.signal(signal.SIGINT, lambda *_: player.close())     # Ctrl+C でも閉じる(音も止める)
+    keep_alive = QTimer()               # Ctrl+C を受け取れるように、ときどき Python に戻る
+    keep_alive.timeout.connect(lambda: None)
+    keep_alive.start(200)
+    player.show()
+    app.exec_()

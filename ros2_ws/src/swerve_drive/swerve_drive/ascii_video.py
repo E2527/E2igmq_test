@@ -1,5 +1,5 @@
 """
-ロボットコンソールの隠し機能(イースターエッグ)で使う、文字アートの動画のデータ.
+隠し機能(イースターエッグ)で流す、文字アートの動画のデータ.
 
 画面にも ROS にも依存しないので、PC だけでテストできる(test/test_ascii_video.py)。
 
@@ -20,42 +20,6 @@ RAMP = ' .\'`^",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$' 
 FRAME_SEPARATOR = '\f'
 VIDEO_ENV = 'ROBOT_CONSOLE_EGG'     # 動画のファイルを直接指定する環境変数
 _ANSI = re.compile(r'\x1b\[[0-9;]*m')
-
-# 隠しコマンド: ↑↑↓↓←→←→(矢印キーは操縦に使っていないので、ロボットは動かない)
-SECRET_KEYS = ('up', 'up', 'down', 'down', 'left', 'right', 'left', 'right')
-
-
-class SecretCode:
-    """決まった順番でキーが押されたかを調べる."""
-
-    def __init__(self, sequence=SECRET_KEYS):
-        self.sequence = tuple(sequence)
-        self.recent = []
-
-    def press(self, key):
-        """キーを 1 個押した。順番どおりに全部押し終わったら True."""
-        self.recent = (self.recent + [key])[-len(self.sequence):]
-        if tuple(self.recent) == self.sequence:
-            self.recent = []
-            return True
-        return False
-
-
-class ClickCounter:
-    """短い間に続けて何回クリックされたかを数える."""
-
-    def __init__(self, count=5, within_s=2.0):
-        self.count = count
-        self.within_s = within_s
-        self.times = []
-
-    def click(self, now):
-        """時刻 now [s] にクリックした。within_s 秒の間に count 回になったら True."""
-        self.times = [t for t in self.times if now - t <= self.within_s] + [now]
-        if len(self.times) >= self.count:
-            self.times = []
-            return True
-        return False
 
 
 def read_video(path):
@@ -115,7 +79,7 @@ def frame_size(frame):
 
 
 def demo_frames(columns=80, rows=24, count=96,
-                lines=('ROBOT CONSOLE', '', 'ros2_ws/egg/ に .asc.gz を置くと、ここで動画が流れます')):
+                lines=('?', '', 'ros2_ws/egg/ に .asc.gz を置くと、ここで動画が流れます')):
     """動画のファイルがないときに流す、波の模様(くり返しても切れ目が見えない)."""
     frames = []
     top = rows // 2 - len(lines) // 2
