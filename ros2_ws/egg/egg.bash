@@ -5,7 +5,7 @@
 #   ホストの PC … ~/.bashrc に次の 1 行を足す
 #                   source ~/e2igmq_test/ros2_ws/egg/egg.bash
 #
-# 開くのは ros2 run swerve_drive ascii_player(ROS のノードではないので、ロボットの動きには関係しない)。
+# 開くのは swerve_drive の ascii_player(ROS のノードではないので、ロボットの動きには関係しない)。
 # ロボットコンソール(./sim.sh)からは開かない。
 
 # 人が打つ bash のときだけ(スクリプトの中などでは何もしない)
@@ -13,14 +13,19 @@ case $- in *i*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
 
 _ROBOT_EGG_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+# ビルドしなくても動くように、ソースのフォルダから直接起動する。うまく開かないときの理由は /tmp/robot_egg.log
+_ROBOT_EGG_RUN='PYTHONPATH=/root/ros2_ws/src/swerve_drive${PYTHONPATH:+:$PYTHONPATH} exec python3 -m swerve_drive.ascii_player'
+
 _robot_egg() {
-    if [ -n "${ROBOT_EGG_COMMAND:-}" ]; then
-        bash -c "$ROBOT_EGG_COMMAND" </dev/null >/dev/null 2>&1 &
-    elif [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
-        ros2 run swerve_drive ascii_player </dev/null >/dev/null 2>&1 &
-    else
-        "$_ROBOT_EGG_REPO/dev.sh" ros2 run swerve_drive ascii_player </dev/null >/dev/null 2>&1 &
+    local command="${ROBOT_EGG_COMMAND:-}"
+    if [ -z "$command" ]; then
+        if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+            command="$_ROBOT_EGG_RUN"
+        else
+            command="'$_ROBOT_EGG_REPO/dev.sh' bash -c '$_ROBOT_EGG_RUN'"
+        fi
     fi
+    bash -c "$command" </dev/null >/tmp/robot_egg.log 2>&1 &
     disown 2>/dev/null
 }
 
