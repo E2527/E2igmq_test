@@ -18,8 +18,29 @@ if [ -z "${WSL_DISTRO_NAME:-}" ] && [ -n "${DISPLAY:-}" ]; then
     fi
 fi
 
+# 音: Linux では、コンテナから PC の PipeWire / PulseAudio に音を送る(WSLg は compose.yaml の既定のままでよい)
+pulse_socket=""
+if [ -z "${WSL_DISTRO_NAME:-}" ]; then
+    uid=$(id -u)
+    pulse_socket="/run/user/$uid/pulse/native"
+    if [ "$uid" != 1000 ]; then
+        export CONTAINER_PULSE_SERVER="unix:/run/host-user/$uid/pulse/native"
+    fi
+fi
+
 # 止まっていれば起動する(compose.yaml を変えたときは作り直される)
 docker compose up -d dev
+
+# PC を起動してすぐ(ログインする前)にコンテナが起動していると、あとからできた音の口がコンテナから見えない。
+# そのときは、コンテナの中で何も動いていなければ再起動して見えるようにする
+if [ -n "$pulse_socket" ] && [ -S "$pulse_socket" ] \
+        && ! docker exec ros_dev test -S "/run/host-user/${pulse_socket#/run/user/}"; then
+    if [ "$(docker top ros_dev -o pid | tail -n +2 | wc -l)" -le 1 ]; then
+        docker restart ros_dev >/dev/null
+    else
+        echo "音が出ないときは、ほかのターミナルで動いているものを止めてから docker restart ros_dev" >&2
+    fi
+fi
 
 tty=-i
 if [ -t 0 ] && [ -t 1 ]; then

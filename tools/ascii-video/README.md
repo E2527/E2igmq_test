@@ -81,7 +81,7 @@ python3 tools/ascii-video/asciiplay.py convert MV_完成版.mp4 -o ros2_ws/egg/M
 
 - `.asc.gz` を置いていないときは、代わりに短い模様が流れます。
 - カラーで変換したファイルは、白黒として流れます。
-- **音**:同じ名前の `.m4a` があり、`ffplay` が入っていれば鳴ります。今の dev コンテナには `ffplay` が入っていないので、コンテナの中では無音です。
+- **音**:同じ名前の `.m4a` があれば、`ffplay` で鳴らします(dev イメージに入っています。WSL は WSLg、Fedora などは PipeWire を通して PC のスピーカーから出ます)。音が出ないときは [docs/troubleshooting.md](../../docs/troubleshooting.md) を見てください。
 - **安全**:隠し機能のウィンドウを開くと、コンソールは押していたキーを離したことにするので、ロボットは止まります。矢印キーは操縦に使っていないので、コマンドを打ってもロボットは動きません。
 - 別のファイルを流したいときは、環境変数 `ROBOT_CONSOLE_EGG` にファイルの場所を入れます。
 - 中身は `ros2_ws/src/swerve_drive/swerve_drive/ascii_video.py`(データ)と `ascii_player.py`(ウィンドウ)です。

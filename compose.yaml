@@ -31,6 +31,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix   # rviz2 などの GUI 表示(WSLg と Linux の X11 / Xwayland)
       - /mnt/wslg:/mnt/wslg             # WSLg 用(WSL 以外では空のフォルダになるだけ)
       - /dev:/dev                       # USB シリアル(/dev/ttyACM0 など)を、挿し直してもコンテナから使えるようにする
+      - /run/user:/run/host-user:ro     # 音(Linux の PipeWire / PulseAudio の口 /run/user/<UID>/pulse/native)
     device_cgroup_rules:
       - "c 166:* rmw"                   # /dev/ttyACM*(Nucleo の ST-LINK など)
       - "c 188:* rmw"                   # /dev/ttyUSB*(USB シリアル変換)
@@ -44,7 +45,9 @@ services:
       DISPLAY: ${DISPLAY:-:0}
       WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
       XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir
-      PULSE_SERVER: /mnt/wslg/PulseServer
+      # 音の送り先。前から順に試す(WSLg → Linux の PipeWire)。Linux のユーザーの UID が 1000 でないときは
+      # dev.sh が CONTAINER_PULSE_SERVER を自分の UID のものにする
+      PULSE_SERVER: ${CONTAINER_PULSE_SERVER:-unix:/mnt/wslg/PulseServer unix:/run/host-user/1000/pulse/native}
 
   # ビルドだけ実行して終了する(CI や確認用)
   build:

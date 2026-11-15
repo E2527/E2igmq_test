@@ -15,6 +15,7 @@
 | `permission denied ... docker.sock` | docker グループに入っていない → `sudo usermod -aG docker $USER` のあと、ログインし直す(WSL は PowerShell で `wsl --shutdown`) |
 | rviz2 やコンソールの画面が出ない | `docker exec` で入っている → `ros` で入る(画面の許可を自動でやる)。または、ホストで `xhost +SI:localuser:root` |
 | `exec format error`(Pi 用のイメージを作るとき) | PC で arm64 を動かす準備ができていない → [raspberry_pi.md](raspberry_pi.md) の「最初の 1 回だけ」 |
+| コンテナから音が出ない | まず `docker compose build dev` をしたか(音のプログラムは新しいイメージに入っている)。`ros pactl info` で `Connection refused` などと出るなら、PC の音の口がコンテナから見えていない → ほかのターミナルの sim などを止めて `docker restart ros_dev`(PC を起動してすぐコンテナが起動したときに起きる) |
 | ディスクがいっぱい | `docker system prune` で使っていないイメージを消す |
 
 ## ROS 2
