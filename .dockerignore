@@ -4,3 +4,5 @@ ros2_ws/install
 ros2_ws/log
 firmware
 docs
+ros2_ws/egg
+tools

@@ -71,6 +71,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-slam-toolbox \
     && rm -rf /var/lib/apt/lists/*
 
+# 音を鳴らす(隠し機能 ros2_ws/egg/egg.bash で、動画の音声を ffplay で流す)。最後の行は、その隠しコマンドを bash に読み込ませる
+#   PC のスピーカーへは、compose.yaml の PULSE_SERVER で WSLg / PipeWire(Fedora)に送る
+#   pulseaudio-utils … 音が出るかの確認用(pactl info、paplay)
+# 上の大きい層を入れ直さなくて済むように、MoveIt・Nav2 の後ろに置く
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        libpulse0 \
+        pulseaudio-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo '[ -f ${WS}/egg/egg.bash ] && source ${WS}/egg/egg.bash' >> /root/.bashrc
+
 # rosdep の依存解決を高速にするため、パッケージ定義だけ先にコピーして依存を入れる
 COPY ros2_ws/src ${WS}/src
 RUN apt-get update \

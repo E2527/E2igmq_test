@@ -1,0 +1,5 @@
+# dev.sh(ros)でコンテナに入るときに読み込む bash の設定。
+# ふつうの ~/.bashrc(ROS の setup.bash など)を読んでから、隠しコマンド(egg.bash)を足す。
+# イメージを作り直さなくても、このフォルダを書き換えればすぐ効く。
+[ -f ~/.bashrc ] && source ~/.bashrc
+[ -f /root/ros2_ws/egg/egg.bash ] && source /root/ros2_ws/egg/egg.bash
