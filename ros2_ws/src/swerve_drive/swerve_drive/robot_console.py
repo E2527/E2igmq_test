@@ -45,12 +45,16 @@ from rclpy.node import Node
 from std_msgs.msg import Bool
 from visualization_msgs.msg import MarkerArray
 
+from . import ascii_player
+from . import ascii_video
 from . import console_state as cs
 from . import console_theme as th
 from . import console_widgets as widgets
 from . import robot_status
 from .teleop_keys import KEY_DIRECTIONS, twist_from_keys
 
+# 隠し機能(文字アートの動画)を開くキー。矢印キーは操縦に使っていないので、ロボットは動かない
+SECRET_QT_KEYS = {Qt.Key_Up: 'up', Qt.Key_Down: 'down', Qt.Key_Left: 'left', Qt.Key_Right: 'right'}
 QT_KEYS = {Qt.Key_W: 'w', Qt.Key_A: 'a', Qt.Key_S: 's', Qt.Key_D: 'd', Qt.Key_Q: 'q',
            Qt.Key_E: 'e', Qt.Key_Shift: 'shift'}
 
@@ -154,6 +158,9 @@ class ConsoleWindow(QWidget):
         self.stopped = False
         self.header_key = None      # 見出しを作り直すかどうかの判定用
         self.k = 0.0                # 今の倍率(最初の apply_scale で決まる)
+        self.secret_code = ascii_video.SecretCode()         # ↑↑↓↓←→←→
+        self.logo_clicks = ascii_video.ClickCounter()       # 左上のマークを 5 回クリック
+        self.egg = None             # 隠し機能のウィンドウ(開いている間だけ)
 
         self.setWindowTitle('ロボットコンソール')
         self.setObjectName('console')
@@ -214,6 +221,7 @@ class ConsoleWindow(QWidget):
     def make_header(self):
         self.header = QHBoxLayout()
         self.logo = QLabel()
+        self.logo.installEventFilter(self)
         self.title = QLabel('ROBOT CONSOLE')
         self.drive_chip = QLabel('')
         self.pill = QLabel('')
@@ -320,7 +328,10 @@ class ConsoleWindow(QWidget):
     def keyPressEvent(self, event):
         if event.isAutoRepeat():        # 押しっぱなしのときに OS が繰り返す分は無視する
             return
-        if event.key() in (Qt.Key_Escape, Qt.Key_Space):
+        if event.key() in SECRET_QT_KEYS:
+            if self.secret_code.press(SECRET_QT_KEYS[event.key()]):
+                self.open_egg()
+        elif event.key() in (Qt.Key_Escape, Qt.Key_Space):
             self.node.publish_stop(True)
         elif event.key() in QT_KEYS:
             self.keys.add(QT_KEYS[event.key()])
@@ -328,6 +339,21 @@ class ConsoleWindow(QWidget):
     def keyReleaseEvent(self, event):
         if not event.isAutoRepeat() and event.key() in QT_KEYS:
             self.keys.discard(QT_KEYS[event.key()])
+
+    def eventFilter(self, watched, event):
+        if watched is self.logo and event.type() == QEvent.MouseButtonPress:
+            if self.logo_clicks.click(time.monotonic()):
+                self.open_egg()
+        return super().eventFilter(watched, event)
+
+    def open_egg(self):
+        """隠し機能: 文字アートの動画を別のウィンドウで流す(ros2_ws/egg/ の .asc.gz)."""
+        if self.egg is not None:
+            return
+        self.keys.clear()               # 念のため、押していないことにしてから開く
+        self.egg = ascii_player.AsciiPlayer(ascii_video.find_video())
+        self.egg.destroyed.connect(lambda: setattr(self, 'egg', None))
+        self.egg.show()
 
     def on_pad_key(self, name, pressed):
         """画面のキーをマウスで押した / 離した."""
@@ -344,6 +370,8 @@ class ConsoleWindow(QWidget):
         self.node.publish_keys(moving, 'shift' in self.keys)
 
     def closeEvent(self, event):
+        if self.egg is not None:
+            self.egg.close()
         self.keys.clear()
         self.node.publish_keys(set(), False)    # 閉じるときは止める
         super().closeEvent(event)
