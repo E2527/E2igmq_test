@@ -10,8 +10,8 @@
 ROS のノードではない(トピックを出さない)ので、ロボットの動きには関係しない。
 """
 
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import time
