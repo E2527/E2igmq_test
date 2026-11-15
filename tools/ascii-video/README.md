@@ -69,7 +69,7 @@ python3 tools/ascii-video/asciiplay.py convert MV_完成版.mp4 -o ros2_ws/egg/M
 #   -> ros2_ws/egg/MV_ascii.asc.gz と ros2_ws/egg/MV_ascii.m4a ができる
 ```
 
-**開き方**:ターミナルで、**Ctrl を押しながら**決まった文字を順番に打ちます(文字は `ros2_ws/egg/egg.bash` に書いてあります)。
+**開き方**:ターミナルで、**Shift を押しながら**(大文字で)決まった文字を順番に打ちます(文字は `ros2_ws/egg/egg.bash` に書いてあります)。
 
 - dev コンテナ(`ros` で入ったターミナル)では、何もしなくても使えます(dev イメージを作り直したあと)。
 - ホストの PC のターミナルでも使うときは、`~/.bashrc` に `source ~/e2igmq_test/ros2_ws/egg/egg.bash` を足します。
@@ -81,6 +81,6 @@ python3 tools/ascii-video/asciiplay.py convert MV_完成版.mp4 -o ros2_ws/egg/M
 - `.asc.gz` がないときは、代わりに短い模様が流れます。カラーで変換したファイルは、白黒として流れます。
 - **音**:同じ名前の `.m4a` があれば、`ffplay` で鳴らします(dev イメージに入っています。WSL は WSLg、Fedora などは PipeWire を通して PC のスピーカーから出ます)。音が出ないときは [docs/troubleshooting.md](../../docs/troubleshooting.md) を見てください。
 - ROS のノードではない(トピックを出さない)ので、ロボットの動きには関係しません。
-- `egg.bash` を読み込むと、Ctrl+S(端末の画面を止める)と Ctrl+O(履歴の実行)が使えなくなります。
+- `egg.bash` を読み込むと、ターミナルで大文字の `O` だけを打ったときは、表示されるまで 1 秒かかります(続きの文字を待つため)。
 - 別のファイルを流したいときは、環境変数 `ROBOT_CONSOLE_EGG` にファイルの場所を入れます。
 - 中身は `ros2_ws/src/swerve_drive/swerve_drive/ascii_video.py`(データ)と `ascii_player.py`(ウィンドウ)です。

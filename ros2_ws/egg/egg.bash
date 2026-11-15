@@ -1,4 +1,4 @@
-# 隠し機能: ターミナルで Ctrl を押しながら決まった文字を打つと、文字アートの動画のウィンドウが開く。
+# 隠し機能: ターミナルで Shift を押しながら(大文字で)決まった文字を打つと、文字アートの動画のウィンドウが開く。
 #
 # 読み込み方(どちらも、新しく開いたターミナルから効く):
 #   dev コンテナ … イメージに入っているので何もしなくてよい(ros で入ったターミナルで使える)
@@ -24,11 +24,7 @@ _robot_egg() {
     disown 2>/dev/null
 }
 
-# Ctrl+S は、ふつうは端末の画面を止める(Ctrl+Q で戻る)機能に使われているので、それを切る
-if [ -t 0 ]; then
-    stty -ixon 2>/dev/null
-fi
-# Ctrl+O(1 つ前の履歴を実行して次を出す。ふだんはほぼ使わない)を外して、
-# 最初の文字を打ったあとに時間切れにならないようにする
-bind -r '\C-o' 2>/dev/null
-bind -x '"\C-o\C-m\C-a\C-e\C-y\C-a\C-r\C-i\C-m\C-a\C-s\C-u\C-n\C-e\C-s\C-u\C-g\C-i\C-l\C-i": _robot_egg' 2>/dev/null
+# Shift を押しながら打つ(大文字)。最初の 1 文字を打ってから次の文字まで 1 秒待つ
+# (ふつうに大文字の O を打ったときは、1 秒たつと表示される)
+bind 'set keyseq-timeout 1000' 2>/dev/null
+bind -x '"OMAEYARIMASUNESUGILI": _robot_egg' 2>/dev/null
