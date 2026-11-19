@@ -56,7 +56,7 @@ class _View(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.TextAntialiasing)
-        p.fillRect(self.rect(), th.color(th.CARD))      # 図の部分は暗い色(エディタの図と同じ)
+        p.fillRect(self.rect(), th.color(th.CARD))      # 図の部分の背景(エディタの図と同じ色)
         p.scale(self.k, self.k)     # ここから先は、倍率 1 のときの大きさで描けばよい
         return p
 
@@ -431,15 +431,15 @@ class KeyPad(_View):
             p.drawRoundedRect(rect, 12, 12)
             cap, action = labels[name]
             if name == 'shift':
-                p.setPen(th.color('#06121a' if on else th.TEXT))
+                p.setPen(th.color('#ffffff' if on else th.TEXT))
                 p.setFont(th.font(11, bold=True))
                 p.drawText(rect, Qt.AlignCenter, f'{cap}  {action}')
                 continue
-            p.setPen(th.color('#06121a' if on else th.TEXT))
+            p.setPen(th.color('#ffffff' if on else th.TEXT))
             p.setFont(th.font(15, bold=True))
             p.drawText(QRectF(rect.left(), rect.top() + rect.height() * 0.10, rect.width(),
                               rect.height() * 0.5), Qt.AlignCenter, cap)
-            p.setPen(th.color('#06121a' if on else th.DIM))
+            p.setPen(th.color('#ffffff' if on else th.DIM))
             p.setFont(th.font(8))
             p.drawText(QRectF(rect.left(), rect.top() + rect.height() * 0.58, rect.width(),
                               rect.height() * 0.32), Qt.AlignCenter, action)

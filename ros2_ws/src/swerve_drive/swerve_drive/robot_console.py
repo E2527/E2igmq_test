@@ -273,9 +273,9 @@ class ConsoleWindow(QMainWindow):
         names = {'swerve': 'スワーブ', 'omni': 'オムニ'}
         self.drive_label.setText(names.get(snap.drive, '(データ待ち)'))
         if snap.stopped:
-            base, hover, text, label = th.GOOD, '#5fe3b4', '#04130d', '▶  再開'
+            base, hover, text, label = th.GOOD, '#22c55e', '#ffffff', '▶  再開'
         else:
-            base, hover, text, label = th.BAD, '#ff7a8c', '#ffffff', '■  停止(Esc)'
+            base, hover, text, label = th.BAD, '#ef4444', '#ffffff', '■  停止(Esc)'
         self.stop_button.setText(label)
         self.stop_button.setStyleSheet(
             f'QPushButton {{ background: {base}; color: {text}; border: none; border-radius: 6px;'

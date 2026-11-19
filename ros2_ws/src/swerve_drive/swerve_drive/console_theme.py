@@ -11,20 +11,20 @@ from PyQt5.QtGui import QColor, QFont, QPen, QPolygonF
 
 from . import console_state as cs
 
-# ---- 色(暗い背景に、明るい文字と差し色) ----
-BG = '#0a0e15'          # ウィンドウの背景
-CARD = '#121823'        # カードの背景
-EDGE = '#1f2836'        # カードのふち、目盛りの線
-TRACK = '#1a2230'       # バーの溝、押していないキー
-TEXT = '#e9eef6'        # ふつうの文字
-DIM = '#8c97ab'         # 補足の文字
-FAINT = '#465166'       # さらに薄い文字、細い線
-ACCENT = '#38c6ff'      # 差し色(水色): 実際の速さ、軌跡
-ACCENT_2 = '#8b7bff'    # 差し色(紫): 回転、グラデーションの端
-GOOD = '#34d399'        # OK、実際の矢印
-WARN = '#fbbf24'        # 注意、頭打ち
-BAD = '#fb5c72'         # エラー、停止ボタン
-STALE = '#5d6779'       # 届いていない
+# ---- 色(明るい背景に、濃い文字と差し色。フィールドエディタの図と同じ色) ----
+BG = '#f6f8fb'          # 図の背景(軌跡の地図)
+CARD = '#ffffff'        # 部品の背景
+EDGE = '#d9dfe8'        # 目盛りの線、ふち
+TRACK = '#e9edf3'       # バーの溝、押していないキー
+TEXT = '#1f2937'        # ふつうの文字
+DIM = '#5b6476'         # 補足の文字
+FAINT = '#9aa3b2'       # さらに薄い文字、細い線
+ACCENT = '#0b84d8'      # 差し色(青): 実際の速さ、軌跡
+ACCENT_2 = '#6d5bd8'    # 差し色(紫): 回転、グラデーションの端
+GOOD = '#16a34a'        # OK、実際の矢印
+WARN = '#d97706'        # 注意、頭打ち
+BAD = '#dc2626'         # エラー、停止ボタン
+STALE = '#9aa3b2'       # 届いていない
 
 LEVEL_COLOR = {cs.OK: GOOD, cs.WARN: WARN, cs.ERROR: BAD, cs.STALE: STALE}
 

@@ -38,11 +38,17 @@ import yaml
 from . import field as fm
 from . import field_io as fio
 
+# 図の色(ロボットコンソールの図と同じ。swerve_drive/console_theme.py)
+CANVAS = QColor('#f6f8fb')      # 図の背景
+GRID = QColor('#d9dfe8')        # 目盛りの線
+AXIS = QColor('#9aa3b2')        # x = 0、y = 0 の線
+INK = QColor('#1f2937')         # 文字、フィールドの範囲の線
+ACCENT = QColor('#0b84d8')
 COLORS = {    # (塗り, ふち)
-    'both': (QColor(56, 198, 255, 110), QColor(56, 198, 255)),
-    'nav': (QColor(251, 191, 36, 90), QColor(251, 191, 36)),
-    'lidar': (QColor(139, 123, 255, 90), QColor(139, 123, 255)),
-    'none': (QColor(140, 151, 171, 30), QColor(140, 151, 171)),
+    'both': (QColor(11, 132, 216, 90), QColor('#0b84d8')),
+    'nav': (QColor(217, 119, 6, 70), QColor('#d97706')),
+    'lidar': (QColor(109, 91, 216, 70), QColor('#6d5bd8')),
+    'none': (QColor(154, 163, 178, 40), QColor('#9aa3b2')),
 }
 HANDLE_PX = 7           # 角の点の大きさ [画面の点]
 SNAP_STEPS = (('吸着なし', 0.0), ('1 cm', 0.01), ('5 cm', 0.05), ('10 cm', 0.1))
@@ -89,11 +95,11 @@ class ShapeItem(QGraphicsItem):
         self.setAcceptHoverEvents(True)
         self.label = QGraphicsSimpleTextItem(self)
         self.label.setFlag(QGraphicsItem.ItemIgnoresTransformations)
-        self.label.setBrush(QColor(255, 255, 255))
-        halo = QGraphicsDropShadowEffect()                  # 明るい画像の上でも読めるように
+        self.label.setBrush(INK)
+        halo = QGraphicsDropShadowEffect()                  # 画像の上でも読めるように、白いふち
         halo.setBlurRadius(6)
         halo.setOffset(0, 0)
-        halo.setColor(QColor(0, 0, 0))
+        halo.setColor(QColor(255, 255, 255))
         self.label.setGraphicsEffect(halo)
         self.update_label()
 
@@ -158,7 +164,7 @@ class ShapeItem(QGraphicsItem):
         d = self.shape_data
         fill, edge = COLORS[self.editor.category(d)]
         chosen = self.isSelected()
-        pen = QPen(edge.lighter(130) if chosen else edge, 2.5 if chosen else 1.5)
+        pen = QPen(edge.darker(130) if chosen else edge, 2.5 if chosen else 1.5)
         pen.setCosmetic(True)
         if self.editor.category(d) == 'none':
             pen.setStyle(Qt.DashLine)
@@ -174,8 +180,8 @@ class ShapeItem(QGraphicsItem):
         if self.isSelected():
             r = HANDLE_PX / self.editor.view.scale_px()
             for kind, _, (x, y) in self.handles():
-                painter.setPen(QPen(QColor(10, 14, 21), 0))
-                painter.setBrush(QColor(139, 123, 255) if kind == 'rotate' else Qt.white)
+                painter.setPen(QPen(INK, 0))
+                painter.setBrush(COLORS['lidar'][1] if kind == 'rotate' else Qt.white)
                 p = scene_point(x, y)
                 if kind == 'rotate':
                     painter.drawEllipse(p, r, r)
@@ -260,7 +266,7 @@ class FieldView(QGraphicsView):
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.RubberBandDrag)
-        self.setBackgroundBrush(QColor(10, 14, 21))
+        self.setBackgroundBrush(CANVAS)
         self.setMouseTracking(True)
         self.pan_from = None
         self.scale(150, 150)                    # 1 m を 150 点で表示
@@ -277,7 +283,7 @@ class FieldView(QGraphicsView):
     def drawBackground(self, painter, rect):
         super().drawBackground(painter, rect)
         step = 0.5 if self.scale_px() > 60 else 1.0
-        pen = QPen(QColor(31, 40, 54), 0)
+        pen = QPen(GRID, 0)
         painter.setPen(pen)
         x = math.floor(rect.left() / step) * step
         while x < rect.right():
@@ -287,7 +293,7 @@ class FieldView(QGraphicsView):
         while y < rect.bottom():
             painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
             y += step
-        axis = QPen(QColor(70, 81, 102), 0)
+        axis = QPen(AXIS, 0)
         painter.setPen(axis)
         painter.drawLine(QPointF(rect.left(), 0), QPointF(rect.right(), 0))
         painter.drawLine(QPointF(0, rect.top()), QPointF(0, rect.bottom()))
@@ -295,7 +301,7 @@ class FieldView(QGraphicsView):
     def drawForeground(self, painter, rect):
         info = self.editor.info
         (x0, x1), (y0, y1) = info['x_range'], info['y_range']
-        pen = QPen(QColor(233, 238, 246, 160), 1.5, Qt.DashLine)
+        pen = QPen(INK, 1.5, Qt.DashLine)
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -438,10 +444,10 @@ class FieldEditor(QMainWindow):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(tabs)
-        legend = QLabel('<b>色</b>  <span style="color:#38c6ff">■</span> 通れない・LiDAR に映る  '
-                        '<span style="color:#fbbf24">■</span> 通れないが LiDAR に映らない<br>'
-                        '<span style="color:#8b7bff">■</span> LiDAR に映るが下をくぐれる  '
-                        '<span style="color:#8c97ab">□</span> 通れる<br>'
+        legend = QLabel('<b>色</b>  <span style="color:#0b84d8">■</span> 通れない・LiDAR に映る  '
+                        '<span style="color:#d97706">■</span> 通れないが LiDAR に映らない<br>'
+                        '<span style="color:#6d5bd8">■</span> LiDAR に映るが下をくぐれる  '
+                        '<span style="color:#9aa3b2">□</span> 通れる<br>'
                         '<b>操作</b>  ホイール: 拡大・縮小 / 右ドラッグ: 動かす / F: 全体<br>'
                         '多角形: クリックで角を足し、ダブルクリック(または Enter)で終わる')
         legend.setWordWrap(True)
@@ -786,10 +792,10 @@ class FieldEditor(QMainWindow):
     def draw_tool_preview(self, painter):
         if not self.draft:
             return
-        pen = QPen(QColor(56, 198, 255), 1.5, Qt.DashLine)
+        pen = QPen(ACCENT, 1.5, Qt.DashLine)
         pen.setCosmetic(True)
         painter.setPen(pen)
-        painter.setBrush(QColor(56, 198, 255, 40))
+        painter.setBrush(QColor(11, 132, 216, 40))
         if self.tool == 'box':
             (x0, y0), (x1, y1) = self.draft
             painter.drawRect(QRectF(scene_point(x0, y0), scene_point(x1, y1)).normalized())
