@@ -42,16 +42,47 @@ shapes:                     # ふさがっている場所
 | `circle` | 中心 `x`、`y` と半径 `radius` [m] |
 | `polygon` | 角の位置 `points: [[x, y], ...]`(3 個以上、順番に) |
 
-- 床のテープや低い段差など、通れる物は書かないか、`passable: true` を付けます。
+- 床のテープなど、通れる物は書かないか、`passable: true` を付けます(`step_height` 以下の高さにしてもよい)。
 - マスより細い壁(2 cm の板など)も、ぬけずに地図に入ります。
 - 新しいファイルを `fields/` に作ったら、`field:=ファイルの名前` で使えます(dev コンテナでは colcon build しなくても見つかります)。
 - 書き方をまちがえたときは、前の地図のまま、ロボットコンソールの「状態」とログに理由が出ます。
+
+## 高さ(ボックス・台・棚など)
+
+図形ごとに高さを書くと、地図を 2 枚に分けます。2D LiDAR は決まった高さの面しか見ないので、低いボックスや上の棚は LiDAR に映りません。映らない物まで位置合わせに使うと、位置がずれる原因になります。
+
+```yaml
+field:
+  lidar_height: 0.20        # 2D LiDAR の高さ [m](複数なら [0.2, 0.5])
+  robot_height: 0.60        # ロボットの高さ [m]。これより上の物の下はくぐれる
+  step_height: 0.01         # 乗り越えられる高さ [m]。これ以下の物は通れる
+
+shapes:
+  - {type: box, name: 低いボックス, x: -0.2, y: 1.2, size_x: 0.4, size_y: 0.3, height: 0.10}
+  - {type: box, name: 上の棚, x: 0.9, y: -0.2, size_x: 0.5, size_y: 0.5, z_min: 0.7, z_max: 0.75}
+```
+
+| 書き方 | 意味 |
+|---|---|
+| `height: 0.3` | 床から 0.3 m の高さの物 |
+| `z_min: 0.7, z_max: 0.9` | 浮いている物(棚の板など)。下の高さと上の高さ |
+| 書かない | 床から天井まで(壁・柱など) |
+
+| 地図 | 入る物 | 使うところ |
+|---|---|---|
+| `/map`(通れるか用) | ロボットの高さ(`step_height`〜`robot_height`)にかかる物 | 経路計画、rviz2 |
+| `/lidar_map`(位置合わせ用) | LiDAR の高さ(`lidar_height`)にかかる物だけ | AMCL(`map_topic: lidar_map`) |
+
+- `lidar_height` などを書かなければ、今までどおり、全部の図形が両方の地図に入ります。
+- `make_map` の表示では、`#` が通れない・LiDAR に映る、`+` が通れないが LiDAR に映らない、`^` が LiDAR に映るが下をくぐれる物です。
+- gn10 の JSON の `z_min` / `z_max` も、そのまま使えます。
 
 ## 出すもの
 
 | トピック | 型 | 中身 |
 |---|---|---|
-| `/map` | `nav_msgs/OccupancyGrid` | 地図(0 = 通れる、100 = ふさがっている)。あとから起動したノードにも届く |
+| `/map` | `nav_msgs/OccupancyGrid` | 通れるか用の地図(0 = 通れる、100 = ふさがっている)。あとから起動したノードにも届く |
+| `/lidar_map` | `nav_msgs/OccupancyGrid` | 位置合わせ用の地図(LiDAR に映る物だけ)。rviz2 では左の一覧のチェックで表示 |
 | `/diagnostics` | `diagnostic_msgs/DiagnosticArray` | 地図を作れたか(「フィールドの地図」) |
 
 ## Nav2 の map_server で使うとき
@@ -59,7 +90,7 @@ shapes:                     # ふさがっている場所
 `field_map_node` の代わりに Nav2 の `map_server` を使うときは、画像と設定のファイルを書き出します。
 
 ```bash
-ros ros2 run field_map make_map example -o /root/ros2_ws/maps/example   # example.pgm と example.yaml
+ros ros2 run field_map make_map example -o /root/ros2_ws/maps/example   # example.pgm / .yaml と example_lidar.pgm / .yaml
 ```
 
 ## ファイル

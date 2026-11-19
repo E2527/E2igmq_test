@@ -7,6 +7,11 @@ ROS に依存しないので、PC だけでテストできる(test/test_field.py
     地図                        … マス目ごとに「通れる(0)」か「ふさがっている(100)」か。
                                    ROS の nav_msgs/OccupancyGrid と同じ並び(左下から右へ、下の行から上へ)
 
+高さ(z_min / z_max)から、地図を 2 種類作る:
+    nav   … 通れるか用。ロボットの高さ(床〜robot_height)にかかる物。経路計画が使う
+    lidar … 位置合わせ用。2D LiDAR の高さ(lidar_height)にかかる物だけ。AMCL が使う
+            (低い台や上の棚は LiDAR に映らないので、入れると位置がずれる)
+
 座標の決まり(ROS と同じ): x が前(フィールドの図の右)、y が左(図の上)、単位は m、角度は度。
 
 ほかの高専の gn10-pointcloud-localization(Apache-2.0)の、フィールドを JSON で書く方法を参考にした。
@@ -22,6 +27,8 @@ import yaml
 
 FREE = 0
 OCCUPIED = 100
+NAV = 'nav'         # 通れるか用の地図
+LIDAR = 'lidar'     # 位置合わせ用の地図
 
 
 class FieldError(ValueError):
@@ -37,6 +44,8 @@ class Shape:
     center: tuple = (0.0, 0.0)                              # circle の中心
     radius: float = 0.0                                     # circle の半径
     name: str = ''
+    z_min: float = 0.0                                      # 下の高さ [m](床なら 0)
+    z_max: float = math.inf                                 # 上の高さ [m](書かなければ天井まで)
 
     def bounds(self):
         """(x_min, x_max, y_min, y_max)."""
@@ -60,6 +69,17 @@ class Field:
     y_max: float
     border: float               # まわりの壁の厚さ [m](0 なら付けない)
     shapes: list
+    lidar_heights: tuple = ()   # 2D LiDAR の高さ [m](なければ、全部の図形が映るとみなす)
+    robot_height: float = math.inf  # ロボットの高さ [m]。これより上の物は下をくぐれる
+    step_height: float = 0.0    # 乗り越えられる高さ [m]。これ以下の物は通れる
+
+    def blocks(self, shape, layer):
+        """図形が、その地図(NAV か LIDAR)でふさがっている場所になるか."""
+        if layer == LIDAR:
+            if not self.lidar_heights:
+                return True
+            return any(shape.z_min <= h <= shape.z_max for h in self.lidar_heights)
+        return shape.z_max > self.step_height and shape.z_min < self.robot_height
 
     @property
     def width(self):
@@ -124,8 +144,20 @@ def parse_field(data, name='field'):
         raise FieldError('x_range / y_range は [小さいほう, 大きいほう] の順にしてください')
     if border < 0:
         raise FieldError('border は 0 以上にしてください')
+    try:
+        lidar = info.get('lidar_height')
+        lidar_heights = tuple(float(v) for v in (lidar if isinstance(lidar, list) else
+                                                 ([] if lidar is None else [lidar])))
+        robot_height = float(info.get('robot_height', math.inf))
+        step_height = float(info.get('step_height', 0.0))
+    except (TypeError, ValueError) as e:
+        raise FieldError(f'lidar_height / robot_height / step_height の書き方がおかしい: {e}')
+    if robot_height <= 0 or step_height < 0 or any(h < 0 for h in lidar_heights):
+        raise FieldError('robot_height は正、step_height と lidar_height は 0 以上にしてください')
+    if step_height >= robot_height:
+        raise FieldError('step_height は robot_height より小さくしてください')
     result = Field(str(info.get('name', name)), resolution, x_min, x_max, y_min, y_max,
-                   border, shapes)
+                   border, shapes, lidar_heights, robot_height, step_height)
     if result.width * result.height > 4000 * 4000:
         raise FieldError('地図が大きすぎます(resolution を大きくしてください)')
     return result
@@ -138,6 +170,19 @@ def _parse_shape(item):
         return None
     name = str(item.get('name', item.get('comment', '')))
     x, y = float(item.get('x', 0.0)), float(item.get('y', 0.0))
+    shape = _parse_outline(kind, item, x, y, name)
+    # 高さ: z_min / z_max(gn10 と同じ)、または height(床からの高さ。z_max と同じ)
+    if 'height' in item and 'z_max' in item:
+        raise ValueError('height と z_max は、どちらか片方だけ書いてください')
+    shape.z_min = float(item.get('z_min', 0.0))
+    shape.z_max = float(item.get('z_max', item.get('height', math.inf)))
+    if shape.z_max <= shape.z_min:
+        raise ValueError('z_max(height)は z_min より大きくしてください')
+    return shape
+
+
+def _parse_outline(kind, item, x, y, name):
+    """図形の上から見た形."""
     if kind == 'box':
         if 'half_x' in item:                    # gn10 の書き方
             hx, hy = float(item['half_x']), float(item['half_y'])
@@ -192,9 +237,11 @@ def resolve_field_path(name, folders=None):
 
 # ---- 地図(マス目)にする ----
 
-def rasterize(field):
+def rasterize(field, layer=NAV):
     """
     地図を作る。マスの値の並び(長さ width × height)を返す.
+
+    layer … NAV(通れるか用)か LIDAR(位置合わせ用)。まわりの壁は、どちらにも入る。
 
     少しでも図形にかかるマスは、ふさがっている(OCCUPIED)にする。
     マスより細い壁(2 cm の板など)も、ぬけずに地図に入る。
@@ -202,6 +249,8 @@ def rasterize(field):
     w, h, res = field.width, field.height, field.resolution
     cells = [FREE] * (w * h)
     for shape in field.shapes:
+        if not field.blocks(shape, layer):
+            continue
         x0, x1, y0, y1 = shape.bounds()
         col0 = max(0, int(math.floor((x0 - field.x_min) / res)))
         col1 = min(w - 1, int(math.floor((x1 - field.x_min) / res)))
@@ -286,17 +335,28 @@ def write_map_files(field, cells, prefix):
     return prefix + '.pgm', prefix + '.yaml'
 
 
-def preview(field, cells, columns=60):
-    """ターミナルで地図をざっと見るための文字の絵(# がふさがっている、上が +y)."""
+PREVIEW_LEGEND = ('# 通れない・LiDAR に映る   + 通れないが LiDAR に映らない(低い台など)   '
+                  '^ LiDAR に映るが下をくぐれる   . 通れる')
+
+
+def preview(field, cells, lidar_cells=None, columns=60):
+    """
+    ターミナルで地図をざっと見るための文字の絵(上が +y).
+
+    lidar_cells(位置合わせ用の地図)も渡すと、PREVIEW_LEGEND の 4 種類の文字で描き分ける。
+    """
     w, h = field.width, field.height
     step = max(1, int(math.ceil(w / columns)))
+    lidar_cells = cells if lidar_cells is None else lidar_cells
     lines = []
     for top in range(h - 1, -1, -2 * step):     # 文字は縦長なので、縦は 2 倍まとめる
         line = []
         for left in range(0, w, step):
-            block = [cells[r * w + c]
+            block = [r * w + c
                      for r in range(max(0, top - 2 * step + 1), top + 1)
                      for c in range(left, min(w, left + step))]
-            line.append('#' if OCCUPIED in block else '.')
+            nav = any(cells[i] == OCCUPIED for i in block)
+            seen = any(lidar_cells[i] == OCCUPIED for i in block)
+            line.append('#' if nav and seen else '+' if nav else '^' if seen else '.')
         lines.append(''.join(line))
     return '\n'.join(lines)

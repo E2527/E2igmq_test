@@ -4,9 +4,10 @@
     ros2 launch field_map field_map.launch.py              # fields/example.yaml、rviz2 も開く
     ros2 run field_map field_map_node --ros-args -p field:=my_field
 
-出すもの:
-    /map          (nav_msgs/OccupancyGrid)… Nav2(AMCL・経路計画)と rviz2 が使う地図。
-                                             あとから起動したノードにも届くように、最後の地図を残しておく
+出すもの(どちらも nav_msgs/OccupancyGrid。あとから起動したノードにも届くように、最後の地図を残しておく):
+    /map          … 通れるか用の地図。ロボットの高さにかかる物。Nav2 の経路計画と rviz2 が使う
+    /lidar_map    … 位置合わせ用の地図。2D LiDAR の高さにかかる物だけ。AMCL が使う
+                    (AMCL の設定で map_topic: lidar_map にする。lidar_height を書かなければ /map と同じ)
     /diagnostics  … 地図を作れたか(ロボットコンソールの「状態」に出る)
 
 ファイルを書き換えて保存すると、1 秒以内に地図を作り直して出し直す(起動し直さなくてよい)。
@@ -36,6 +37,7 @@ class FieldMapNode(Node):
         self.path = fm.resolve_field_path(p('field', 'example').value)
         self.frame_id = p('frame_id', 'map').value
         self.map_pub = self.create_publisher(OccupancyGrid, 'map', MAP_QOS)
+        self.lidar_pub = self.create_publisher(OccupancyGrid, 'lidar_map', MAP_QOS)
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.stamp = None           # 最後に読んだときのファイルの更新時刻
         self.level, self.message, self.summary = DiagnosticStatus.WARN, 'まだ読んでいません', {}
@@ -55,17 +57,24 @@ class FieldMapNode(Node):
         self.stamp = stamp
         try:
             field = fm.load_field(self.path)
-            cells = fm.rasterize(field)
+            cells = fm.rasterize(field, fm.NAV)
+            lidar_cells = fm.rasterize(field, fm.LIDAR)
         except fm.FieldError as e:
             self.fail(f'書き方がおかしいので、前の地図のままです: {e}')
             return
         self.map_pub.publish(self.to_message(field, cells))
+        self.lidar_pub.publish(self.to_message(field, lidar_cells))
         blocked = sum(1 for v in cells if v == fm.OCCUPIED)
+        unseen = [s.name or s.kind for s in field.shapes
+                  if field.blocks(s, fm.NAV) and not field.blocks(s, fm.LIDAR)]
         self.level, self.message = DiagnosticStatus.OK, f'{field.name} の地図を出しています'
         self.summary = {'ファイル': self.path, '広さ [m]': f'{field.x_max - field.x_min:g} × '
                         f'{field.y_max - field.y_min:g}', 'マス': f'{field.width} × {field.height}',
                         '図形の数': str(len(field.shapes)),
-                        'ふさがっているマス': f'{100.0 * blocked / len(cells):.1f} %'}
+                        'ふさがっているマス': f'{100.0 * blocked / len(cells):.1f} %',
+                        'LiDAR の高さ [m]': ', '.join(f'{h:g}' for h in field.lidar_heights)
+                        or '(書いていない: 全部映るとみなす)',
+                        'LiDAR に映らない物': ', '.join(unseen) or 'なし'}
         self.get_logger().info(f'地図を作りました: {field.name}({field.width} × {field.height} マス、'
                                f'図形 {len(field.shapes)} 個)')
         self.publish_diagnostics()

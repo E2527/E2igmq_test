@@ -22,6 +22,17 @@ Visualization Manager:
         Reliability Policy: Reliable
       Color Scheme: map
       Alpha: 0.9
+    - Class: rviz_default_plugins/Map
+      Name: LiDAR に映る物(/lidar_map)
+      Enabled: false
+      Topic:
+        Value: /lidar_map
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.6
     - Class: rviz_default_plugins/TF
       Name: TF
       Enabled: true
