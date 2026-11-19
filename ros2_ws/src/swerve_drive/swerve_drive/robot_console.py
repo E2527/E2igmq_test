@@ -1,11 +1,13 @@
 """
 ロボットコンソール: 操縦・速さ・状態・停止を 1 つにまとめたウィンドウ(PC で動く).
 
-    ┌ ROBOT CONSOLE ───────────────── [● すべて OK] ─ [■ 停止] ┐
-    │ ロボット(上から見た図) │ 速さ(指令と実際) │ 軌跡(地図)  │
-    │                        │ 操縦(WASD)       │              │
-    │ 状態(/diagnostics の一覧)                                │
-    └──────────────────────────────────────────────────────┘
+    ┌ [■ 停止] 状態 ● すべて OK │ 足回り スワーブ │ 軌跡を消す ──────────┐
+    │                                     │ [操縦] [ロボット] [状態]  │
+    │          軌跡(地図)               │  速さ(指令と実際)        │
+    │   ロボットの位置・向き・走った跡    │  WASD のキー              │
+    │                                     │                          │
+    ├ x +0.00 m  y +0.00 m  向き +0°  速さ 0.00 m/s ─────────────────┤
+    (フィールドエディタ・設定画面と同じ、道具バー + 中央の図 + 右の欄 の並び)
 
     操縦 … W / S 前後、A / D 左右、Q / E 回転、Shift で速く。押している間だけ /cmd_vel を出す。
            ほかのウィンドウに移ると、押していないことにして止まる
@@ -22,7 +24,7 @@
 ファイルの分担:
     console_state.py   … 表示するデータ(ROS にも画面にも依存しない。テストあり)
     console_theme.py   … 色とフォント
-    console_widgets.py … 各カードの絵
+    console_widgets.py … 各部品の絵(軌跡、ロボット、速さ、キー、状態)
     robot_console.py   … ROS とのやり取りと、ウィンドウ(このファイル)
 """
 
@@ -37,8 +39,9 @@ from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtWidgets import (QApplication, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-                             QSizePolicy, QWidget)
+from PyQt5.QtWidgets import (QAction, QApplication, QGroupBox, QHBoxLayout, QLabel,
+                             QMainWindow, QPushButton, QTabWidget, QToolBar, QToolButton,
+                             QVBoxLayout, QWidget)
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -135,35 +138,27 @@ class ConsoleNode(Node):
         self.stop_pub.publish(Bool(data=stop))
 
 
-class ConsoleWindow(QWidget):
+class ConsoleWindow(QMainWindow):
     """
-    ウィンドウ。キー入力を受け取り、30 回/秒で表示を更新する.
+    ウィンドウ(フィールドエディタと同じ並び)。キー入力を受け取り、30 回/秒で表示を更新する.
 
-    ウィンドウの大きさを変えると、中身をまるごと同じ比率で拡大・縮小する
-    (BASE_SIZE のときが倍率 1。文字もボタンも余白も、同じ倍率になる)。
+        上   … 道具バー: 停止 / 再開、状態、足回りの種類、軌跡を消す
+        中央 … 軌跡(地図)。ロボットの位置と向き、走った跡
+        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ 状態(/diagnostics)
+        下   … 位置・向き・速さ
     """
-
-    BASE_SIZE = (1240, 800)     # 倍率 1 のときのウィンドウの大きさ
-    MIN_SCALE, MAX_SCALE = 0.7, 4.0
-    SCALE_STEP = 0.05           # 倍率はこの刻みで変える(大きさを変えている間、がたがたしないように)
 
     def __init__(self, node):
         super().__init__()
         self.node = node
         self.keys = set()           # 押しているキー('w' など。Shift は 'shift')
         self.stopped = False
-        self.header_key = None      # 見出しを作り直すかどうかの判定用
-        self.k = 0.0                # 今の倍率(最初の apply_scale で決まる)
+        self.header_key = None      # 道具バーを作り直すかどうかの判定用
 
         self.setWindowTitle('ロボットコンソール')
-        self.setObjectName('console')
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f'#console {{ background: {th.BG}; }}'
-                           f' QLabel {{ color: {th.TEXT}; background: transparent; }}')
         self.setFocusPolicy(Qt.StrongFocus)
-        self.resize(*self.BASE_SIZE)
-        self.setMinimumSize(round(self.BASE_SIZE[0] * self.MIN_SCALE),
-                            round(self.BASE_SIZE[1] * self.MIN_SCALE))
+        self.resize(1300, 820)
+        self.setMinimumSize(900, 700)
 
         self.robot = widgets.RobotView(node.max_linear, node.max_angular)
         self.speed = widgets.SpeedGauges(node.max_linear, node.max_angular)
@@ -171,37 +166,11 @@ class ConsoleWindow(QWidget):
         self.keypad.keyChanged.connect(self.on_pad_key)
         self.trail = widgets.TrailView()
         self.status = widgets.StatusList()
-        self.clear = QPushButton('消す')
-        self.clear.setFocusPolicy(Qt.NoFocus)
-        self.clear.setCursor(Qt.PointingHandCursor)
-        self.clear.clicked.connect(node.state.clear_trail)
-        self.note = QLabel('停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ(電源を切るもの)は、必ず別に付けてください')
-        self.note.setStyleSheet(f'color: {th.FAINT};')
-        # 文が長いので、幅が足りないときは切れてよい(この文のせいでウィンドウを狭くできなくならないように)
-        self.note.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.note.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.status.setMinimumHeight(140)
+        self.status.setMaximumHeight(16777215)          # タブの中では、高さいっぱいに使う
 
-        self.cards = [widgets.Card('ロボット', 'ROBOT', self.robot),
-                      widgets.Card('速さ', 'SPEED', self.speed),
-                      widgets.Card('操縦', 'DRIVE', self.keypad),
-                      widgets.Card('軌跡', 'TRAIL', self.trail, self.clear),
-                      widgets.Card('状態', 'STATUS', self.status, self.note)]
-        self.cards[4].head.setStretchFactor(self.note, 1)
-        # 中身の文字の長さで列の幅が変わらないように、幅は列の比(下の 5 : 4 : 5)だけで決める
-        for card in self.cards:
-            card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.grid = QGridLayout(self)
-        self.grid.addLayout(self.make_header(), 0, 0, 1, 3)
-        self.grid.addWidget(self.cards[0], 1, 0, 2, 1)
-        self.grid.addWidget(self.cards[1], 1, 1)
-        self.grid.addWidget(self.cards[2], 2, 1)
-        self.grid.addWidget(self.cards[3], 1, 2, 2, 1)
-        self.grid.addWidget(self.cards[4], 3, 0, 1, 3)
-        for column, stretch in enumerate((5, 4, 5)):
-            self.grid.setColumnStretch(column, stretch)
-        self.grid.setRowStretch(1, 1)
-        self.grid.setRowStretch(2, 1)
-        self.apply_scale(1.0)
+        self.make_toolbar()
+        self.make_body()
 
         self.view_timer = QTimer(self)
         self.view_timer.timeout.connect(self.refresh)
@@ -211,66 +180,69 @@ class ConsoleWindow(QWidget):
         self.key_timer.start(int(1000 / node.rate_hz))
         self.refresh()
 
-    def make_header(self):
-        self.header = QHBoxLayout()
-        self.logo = QLabel()
-        self.title = QLabel('ROBOT CONSOLE')
-        self.drive_chip = QLabel('')
-        self.pill = QLabel('')
-        self.pill.setAlignment(Qt.AlignCenter)
+    def make_toolbar(self):
+        bar = QToolBar('操作')
+        bar.setMovable(False)
+        bar.setFocusPolicy(Qt.NoFocus)
+        self.addToolBar(bar)
         self.stop_button = QPushButton('')
         self.stop_button.setFocusPolicy(Qt.NoFocus)     # スペースキーなどで勝手に押されないように
         self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setMinimumSize(170, 34)
         self.stop_button.clicked.connect(lambda: self.node.publish_stop(not self.stopped))
-        self.header.addWidget(self.logo)
-        self.header.addWidget(self.title)
-        self.header.addWidget(self.drive_chip, 0, Qt.AlignVCenter)
-        self.header.addStretch(1)
-        self.header.addWidget(self.pill, 0, Qt.AlignVCenter)
-        self.header.addWidget(self.stop_button)
-        return self.header
+        bar.addWidget(self.stop_button)
+        bar.addSeparator()
+        self.pill = QLabel('')
+        bar.addWidget(QLabel(' 状態 '))
+        bar.addWidget(self.pill)
+        bar.addSeparator()
+        self.drive_label = QLabel('')
+        bar.addWidget(QLabel(' 足回り '))
+        bar.addWidget(self.drive_label)
+        bar.addSeparator()
+        clear = QAction('軌跡を消す', self)
+        clear.triggered.connect(self.node.state.clear_trail)
+        bar.addAction(clear)
+        for button in bar.findChildren(QToolButton):
+            button.setFocusPolicy(Qt.NoFocus)
 
-    # ---- 大きさ ----
+    def make_body(self):
+        tabs = QTabWidget()
+        tabs.setFocusPolicy(Qt.NoFocus)
+        tabs.tabBar().setFocusPolicy(Qt.NoFocus)
+        tabs.setMinimumWidth(400)
+        drive = QWidget()
+        column = QVBoxLayout(drive)
+        self.speed.setMinimumHeight(210)                # 3 本のバーが切れない高さ
+        for title, body, stretch in (('速さ(白い印 = 指令、バー = 実際)', self.speed, 0),
+                                     ('操縦(クリックでも押せる)', self.keypad, 1)):
+            group = QGroupBox(title)
+            inner = QVBoxLayout(group)
+            inner.addWidget(body)
+            column.addWidget(group, stretch)
+        tabs.addTab(drive, '操縦')
+        tabs.addTab(self.robot, 'ロボット')
+        tabs.addTab(self.status, '状態')
+        self.tabs = tabs
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        k = min(self.width() / self.BASE_SIZE[0], self.height() / self.BASE_SIZE[1])
-        k = max(self.MIN_SCALE, min(self.MAX_SCALE, k))
-        self.apply_scale(math.floor(k / self.SCALE_STEP + 1e-6) * self.SCALE_STEP)
+        help_text = QLabel(
+            '<b>操縦</b>  W / S 前後、A / D 左右、Q / E 回転、Shift で速く(このウィンドウを選んでいる間)<br>'
+            '<b>停止</b>  Esc かスペース。「再開」を押すまで止まったまま<br>'
+            '<span style="color:#c0392b">停止ボタンはソフトウェアの停止です。本物の非常停止スイッチ'
+            '(電源を切るもの)は、必ず別に付けてください</span>')
+        help_text.setWordWrap(True)
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.addWidget(tabs, 1)
+        side_layout.addWidget(help_text)
 
-    def apply_scale(self, k):
-        """文字・ボタン・余白・各カードを、倍率 k の大きさにする."""
-        if abs(k - self.k) < 1e-6:
-            return
-        self.k = k
-
-        def px(value):
-            return round(value * k)
-
-        self.grid.setContentsMargins(px(18), px(14), px(18), px(16))
-        self.grid.setSpacing(px(14))
-        self.header.setSpacing(px(12))
-        self.logo.setFixedSize(px(26), px(26))
-        self.logo.setStyleSheet(
-            f'background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {th.ACCENT},'
-            f' stop:1 {th.ACCENT_2}); border-radius: {px(8)}px;')
-        self.title.setFont(th.font(14, bold=True, spacing=2.5, scale=k))
-        self.drive_chip.setFont(th.font(8, bold=True, spacing=1.5, scale=k))
-        self.pill.setFont(th.font(10, bold=True, scale=k))
-        self.pill.setFixedHeight(px(34))
-        self.stop_button.setFont(th.font(12, bold=True, scale=k))
-        self.stop_button.setFixedSize(px(190), px(46))
-        self.clear.setFont(th.font(9, scale=k))
-        self.clear.setStyleSheet(
-            f'QPushButton {{ color: {th.DIM}; background: {th.TRACK}; border: 1px solid {th.EDGE};'
-            f' border-radius: {px(10)}px; padding: {px(2)}px {px(12)}px; }}'
-            f'QPushButton:hover {{ color: {th.TEXT}; }}')
-        self.note.setFont(th.font(8, scale=k))
-        for card in self.cards:
-            card.set_scale(k)
-        self.header_key = None      # 見出しの色付きの部品も、新しい大きさで作り直す
-        if self.isVisible():
-            self.update_header(self.node.state.snapshot(time.monotonic()))
+        body = QWidget()
+        row = QHBoxLayout(body)
+        row.setContentsMargins(4, 4, 4, 4)
+        row.addWidget(self.trail, 1)
+        row.addWidget(side)
+        self.setCentralWidget(body)
 
     # ---- 表示 ----
 
@@ -284,36 +256,31 @@ class ConsoleWindow(QWidget):
             view.set_snapshot(snap)
         self.keypad.set_keys(self.keys, self.isActiveWindow(), snap.stopped)
         self.update_header(snap)
+        x, y, yaw = snap.pose
+        speed = f'{math.hypot(snap.actual[0], snap.actual[1]):.2f} m/s' \
+            if snap.actual is not None else '--'
+        self.statusBar().showMessage(
+            f'x {x:+.2f} m    y {y:+.2f} m    向き {math.degrees(yaw):+.0f}°    速さ {speed}')
 
     def update_header(self, snap):
         key = (snap.level, snap.summary, snap.stopped, snap.drive)
         if key == self.header_key:      # 変わったときだけ作り直す
             return
         self.header_key = key
-
-        def px(value):
-            return round(value * self.k)
-
         hex_color = th.LEVEL_COLOR[snap.level]
         self.pill.setText(f'●  {snap.summary}')
-        self.pill.setStyleSheet(
-            f'color: {hex_color}; background: {th.rgba(hex_color, 34)};'
-            f' border: 1px solid {th.rgba(hex_color, 110)}; border-radius: {px(34) // 2 - 1}px;'
-            f' padding: 0px {px(16)}px;')
-        names = {'swerve': 'SWERVE  スワーブ', 'omni': 'OMNI  オムニ'}
-        self.drive_chip.setText(names.get(snap.drive, ''))
-        self.drive_chip.setStyleSheet(
-            f'color: {th.ACCENT}; background: {th.rgba(th.ACCENT, 26)};'
-            f' border-radius: {px(9)}px; padding: {px(3)}px {px(10)}px;'
-            if snap.drive else 'background: transparent;')
+        self.pill.setStyleSheet(f'color: {hex_color}; font-weight: bold;')
+        names = {'swerve': 'スワーブ', 'omni': 'オムニ'}
+        self.drive_label.setText(names.get(snap.drive, '(データ待ち)'))
         if snap.stopped:
             base, hover, text, label = th.GOOD, '#5fe3b4', '#04130d', '▶  再開'
         else:
             base, hover, text, label = th.BAD, '#ff7a8c', '#ffffff', '■  停止(Esc)'
         self.stop_button.setText(label)
         self.stop_button.setStyleSheet(
-            f'QPushButton {{ background: {base}; color: {text}; border: none;'
-            f' border-radius: {px(14)}px; }} QPushButton:hover {{ background: {hover}; }}')
+            f'QPushButton {{ background: {base}; color: {text}; border: none; border-radius: 6px;'
+            f' font-weight: bold; padding: 4px 18px; }}'
+            f' QPushButton:hover {{ background: {hover}; }}')
 
     # ---- キー ----
 
@@ -359,7 +326,6 @@ def spin(node):
 def main():
     rclpy.init()
     app = QApplication(sys.argv[:1])
-    app.setFont(th.font(10))
     # 画面の処理の中でエラーが起きても、アプリごと落ちないようにする(内容は表示する)
     sys.excepthook = lambda *error: traceback.print_exception(*error)
     node = ConsoleNode()
