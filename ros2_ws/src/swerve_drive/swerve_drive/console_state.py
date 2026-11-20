@@ -3,8 +3,13 @@
 
 ROS にも画面にも依存しないので、PC だけでテストできる(test/test_console_state.py)。
 
-    ROS のコールバック(別のスレッド)が on_cmd / on_odom / on_arrows / on_diagnostic で書き込み、
+    ROS のコールバック(別のスレッド)が on_cmd / on_odom / on_arrows / on_diagnostic /
+    on_map / on_scan / set_odom_in_map で書き込み、
     画面(メインのスレッド)が snapshot() で、その時点の表示内容をまとめて受け取る。
+
+座標: /odom はオドメトリの座標(odom)、地図と表示は地図の座標(map)。
+      odom が map のどこにあるか(TF の map → odom)を odom_in_map に持ち、表示のときに直す。
+      自分の位置を合わせる部品(AMCL など)がなければ、map と odom は同じとみなす。
 """
 
 from collections import deque
@@ -18,6 +23,50 @@ LEVEL_TEXT = {OK: 'OK', WARN: '注意', ERROR: 'エラー', STALE: '届いてい
 
 TRAIL_STEP = 0.02       # これ以上動いたら、軌跡に点を足す [m]
 TRAIL_MAX = 4000        # 軌跡の点の数の上限(古い点から消える)
+SCAN_TIMEOUT_S = 1.0    # LiDAR の点がこれ以上来なければ、表示しない
+
+
+@dataclass(frozen=True)
+class MapData:
+    """地図(nav_msgs/OccupancyGrid と同じ中身)."""
+
+    width: int
+    height: int
+    resolution: float   # 1 マスの大きさ [m]
+    origin_x: float     # 左下の角の位置 [m]
+    origin_y: float
+    cells: bytes        # マスの値(0 通れる、100 ふさがっている、255 = -1 分からない)
+    version: int = 0    # 届くたびに増える(画面が絵を作り直すかの判定用)
+
+    @property
+    def bounds(self):
+        """(x_min, x_max, y_min, y_max)."""
+        return (self.origin_x, self.origin_x + self.width * self.resolution,
+                self.origin_y, self.origin_y + self.height * self.resolution)
+
+
+def compose(frame, x, y):
+    """座標 frame = (x, y, 向き) の中の点 (x, y) を、その外側の座標に直す."""
+    fx, fy, fyaw = frame
+    c, s = math.cos(fyaw), math.sin(fyaw)
+    return fx + c * x - s * y, fy + s * x + c * y
+
+
+def scan_points(ranges, angle_min, angle_increment, range_min, range_max, laser_pose):
+    """距離の並び(LaserScan)を、ロボットから見た点 [(x, y)] にする(laser_pose は LiDAR の取り付け)."""
+    points = []
+    for i, r in enumerate(ranges):
+        if not (math.isfinite(r) and range_min <= r <= range_max):
+            continue
+        a = angle_min + i * angle_increment
+        points.append(compose(laser_pose, r * math.cos(a), r * math.sin(a)))
+    return points
+
+
+def compose_pose(frame, pose):
+    """座標 frame の中の位置と向き pose を、その外側の座標に直す."""
+    x, y = compose(frame, pose[0], pose[1])
+    return x, y, math.atan2(math.sin(frame[2] + pose[2]), math.cos(frame[2] + pose[2]))
 
 
 @dataclass(frozen=True)
@@ -56,6 +105,18 @@ class Snapshot:
     summary: str = ''                   # 全体の状態の文
     stopped: bool = False               # 停止ボタンで止まっている
     capped: bool = False                # 実際の速さが指令に届いていない(頭打ち)
+    grid: MapData = None                # 地図(届いていなければ None)
+    scan: list = field(default_factory=list)        # LiDAR の点 [(x, y)](ロボットから見た位置)
+    odom_in_map: tuple = (0.0, 0.0, 0.0)    # odom の座標が、地図のどこにあるか
+
+    @property
+    def map_pose(self):
+        """地図の座標での、ロボットの位置と向き."""
+        return compose_pose(self.odom_in_map, self.pose)
+
+    def map_trail(self):
+        """地図の座標での軌跡."""
+        return [compose(self.odom_in_map, x, y) for x, y in self.trail]
 
 
 class ConsoleState:
@@ -80,6 +141,10 @@ class ConsoleState:
         self._stop_sent_time = None
         self._stop_reported = False     # 足回りが「止まっている」と知らせてきた
         self._stop_reported_time = None
+        self._map = None
+        self._scan = []
+        self._scan_time = None
+        self._odom_in_map = (0.0, 0.0, 0.0)
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -123,6 +188,25 @@ class ConsoleState:
             self._stop_sent = stop
             self._stop_sent_time = now
 
+    def on_map(self, width, height, resolution, origin_x, origin_y, cells):
+        """地図(/map)。cells は -1〜100 の並び(bytes なら -1 は 255)."""
+        with self._lock:
+            version = self._map.version + 1 if self._map else 1
+            data = bytes(v & 0xFF for v in cells) if not isinstance(cells, bytes) else cells
+            self._map = MapData(int(width), int(height), float(resolution), float(origin_x),
+                                float(origin_y), data, version)
+
+    def on_scan(self, points, now):
+        """ロボット(base_link)から見た、LiDAR の点 [(x, y)]."""
+        with self._lock:
+            self._scan = list(points)
+            self._scan_time = now
+
+    def set_odom_in_map(self, x, y, yaw):
+        """TF の map → odom(自分の位置を合わせる部品が出す)."""
+        with self._lock:
+            self._odom_in_map = (x, y, yaw)
+
     def clear_trail(self):
         with self._lock:
             self._trail.clear()
@@ -139,6 +223,10 @@ class ConsoleState:
             if self._arrows_time is not None and now - self._arrows_time < self.odom_timeout_s:
                 snap.targets = list(self._targets)
                 snap.actuals = list(self._actuals)
+            snap.grid = self._map
+            snap.odom_in_map = self._odom_in_map
+            if self._scan_time is not None and now - self._scan_time < SCAN_TIMEOUT_S:
+                snap.scan = list(self._scan)
             snap.stopped = self._stopped(now)
             snap.capped = self._capped(snap.command, snap.actual)
             for name in sorted(self._items):

@@ -1,3 +1,6 @@
+import math
+
+from swerve_drive import console_state as cs
 from swerve_drive.console_state import Arrow, ConsoleState, ERROR, OK, STALE, WARN
 
 
@@ -81,3 +84,37 @@ def test_stop_follows_button_first_then_the_drive_report():
     s.set_stop(True, now=4.0)
     assert s.snapshot(4.1).stopped
     assert s.snapshot(20.0).stopped              # 足回りの知らせが途切れても、自分の指示を覚えている
+
+
+def test_map_scan_and_odom_in_map():
+    state = cs.ConsoleState()
+    snap = state.snapshot(0.0)
+    assert snap.grid is None and snap.scan == [] and snap.map_pose == (0.0, 0.0, 0.0)
+    state.on_map(4, 2, 0.5, -1.0, -0.5, [0, 100, -1, 0, 0, 0, 0, 100])
+    state.on_scan([(1.0, 0.0), (0.0, 2.0)], now=1.0)
+    state.on_odom(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, now=1.0)
+    state.set_odom_in_map(0.5, 0.5, math.pi / 2)            # odom が地図の中で 90° 回っている
+    snap = state.snapshot(1.5)
+    assert snap.grid.width == 4 and snap.grid.cells[2] == 255 and snap.grid.version == 1
+    assert snap.grid.bounds == (-1.0, 1.0, -0.5, 0.5)
+    assert snap.scan == [(1.0, 0.0), (0.0, 2.0)]
+    x, y, yaw = snap.map_pose
+    assert (round(x, 6), round(y, 6), round(yaw, 6)) == (0.5, 1.5, round(math.pi / 2, 6))
+    assert [tuple(round(v, 6) for v in p) for p in snap.map_trail()] == [(0.5, 1.5)]
+    assert state.snapshot(3.0).scan == []                   # 古くなったら出さない
+    state.on_map(1, 1, 1.0, 0.0, 0.0, b'\x00')
+    assert state.snapshot(3.0).grid.version == 2
+
+
+def test_compose():
+    assert cs.compose((1.0, 2.0, 0.0), 0.5, 0.0) == (1.5, 2.0)
+    x, y = cs.compose((0.0, 0.0, math.pi / 2), 1.0, 0.0)
+    assert abs(x) < 1e-9 and abs(y - 1.0) < 1e-9
+
+
+def test_scan_points_skip_bad_ranges_and_apply_the_mount():
+    ranges = [1.0, float('inf'), 0.01, 2.0, float('nan')]
+    points = cs.scan_points(ranges, angle_min=0.0, angle_increment=math.pi / 2, range_min=0.05,
+                            range_max=10.0, laser_pose=(0.1, 0.0, 0.0))
+    # 1 本目は前に 1 m、4 本目は 270°(右)に 2 m。LiDAR がロボットの中心より 0.1 m 前
+    assert [tuple(round(v, 6) for v in p) for p in points] == [(1.1, 0.0), (0.1, -2.0)]

@@ -16,8 +16,9 @@
 
 停止ボタンはソフトウェアの停止。**本物の非常停止スイッチ(モーターの電源を切るもの)は、必ず別に付けること。**
 
-見るだけのトピック: /cmd_vel、/odom、swerve/markers、omni/markers、/diagnostics
-(スワーブでもオムニでも、シミュレーションでも実機でも使える)
+見るだけのトピック: /cmd_vel、/odom、swerve/markers、omni/markers、/diagnostics、
+                   /map(地図)、/scan(LiDAR)、TF(map → odom、base_link → LiDAR)
+(スワーブでもオムニでも、シミュレーションでも実機でも使える。地図や LiDAR がなければ、その表示が出ないだけ)
 
     ros2 run swerve_drive robot_console
 
@@ -37,15 +38,20 @@ import traceback
 
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtWidgets import (QAction, QApplication, QGroupBox, QHBoxLayout, QLabel,
                              QMainWindow, QPushButton, QTabWidget, QToolBar, QToolButton,
                              QVBoxLayout, QWidget)
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool
+from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
 from . import console_state as cs
@@ -56,6 +62,10 @@ from .teleop_keys import KEY_DIRECTIONS, twist_from_keys
 
 QT_KEYS = {Qt.Key_W: 'w', Qt.Key_A: 'a', Qt.Key_S: 's', Qt.Key_D: 'd', Qt.Key_Q: 'q',
            Qt.Key_E: 'e', Qt.Key_Shift: 'shift'}
+
+
+MAP_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                     durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def yaw_of(orientation):
@@ -89,6 +99,15 @@ class ConsoleNode(Node):
         self.create_subscription(DiagnosticArray, '/diagnostics', self.on_diagnostics, 10)
         self.create_subscription(Bool, robot_status.STOP_TOPIC, self.on_stop,
                                  robot_status.STOP_QOS)
+        # 地図と LiDAR(なければ、その表示が出ないだけ)
+        self.map_frame = p('map_frame', 'map').value
+        self.odom_frame = p('odom_frame', 'odom').value
+        self.base_frame = p('base_frame', 'base_link').value
+        self.create_subscription(OccupancyGrid, p('map_topic', 'map').value, self.on_map, MAP_QOS)
+        self.create_subscription(LaserScan, 'scan', self.on_scan, qos_profile_sensor_data)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.create_timer(0.2, self.update_odom_in_map)
 
     # ---- 受け取る(ROS のスレッド) ----
 
@@ -120,6 +139,33 @@ class ConsoleNode(Node):
     def on_stop(self, msg):
         self.state.set_stop(msg.data, time.monotonic())
 
+    def on_map(self, msg):
+        info = msg.info
+        self.state.on_map(info.width, info.height, info.resolution, info.origin.position.x,
+                          info.origin.position.y, msg.data)
+
+    def lookup(self, target, source):
+        """TF で source の座標が target のどこにあるか (x, y, 向き)。分からなければ None."""
+        try:
+            t = self.tf_buffer.lookup_transform(target, source, Time(),
+                                                timeout=Duration(seconds=0.0))
+        except TransformException:
+            return None
+        tr = t.transform
+        return tr.translation.x, tr.translation.y, yaw_of(tr.rotation)
+
+    def on_scan(self, msg):
+        # LiDAR の取り付け位置(TF の base_link → LiDAR)。分からなければ、ロボットの中心で前向き
+        laser = self.lookup(self.base_frame, msg.header.frame_id) or (0.0, 0.0, 0.0)
+        points = cs.scan_points(msg.ranges, msg.angle_min, msg.angle_increment,
+                                msg.range_min, msg.range_max, laser)
+        self.state.on_scan(points, time.monotonic())
+
+    def update_odom_in_map(self):
+        # 自分の位置を合わせる部品(AMCL など)がなければ、地図とオドメトリは同じとみなす
+        self.state.set_odom_in_map(*(self.lookup(self.map_frame, self.odom_frame)
+                                     or (0.0, 0.0, 0.0)))
+
     # ---- 出す(画面のスレッド) ----
 
     def publish_keys(self, keys, turbo):
@@ -143,8 +189,8 @@ class ConsoleWindow(QMainWindow):
     ウィンドウ(フィールドエディタと同じ並び)。キー入力を受け取り、30 回/秒で表示を更新する.
 
         上   … 道具バー: 停止 / 再開、状態、足回りの種類、軌跡を消す
-        中央 … 軌跡(地図)。ロボットの位置と向き、走った跡
-        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ 状態(/diagnostics)
+        中央 … 地図(/map)の上に、ロボットの位置と向き、走った跡、LiDAR の点
+        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ LiDAR / 状態
         下   … 位置・向き・速さ
     """
 
@@ -165,6 +211,7 @@ class ConsoleWindow(QMainWindow):
         self.keypad = widgets.KeyPad(f'{node.linear_speed:g} m/s ・ Shift ×{node.turbo_scale:g}')
         self.keypad.keyChanged.connect(self.on_pad_key)
         self.trail = widgets.TrailView()
+        self.lidar = widgets.LidarView()
         self.status = widgets.StatusList()
         self.status.setMinimumHeight(140)
         self.status.setMaximumHeight(16777215)          # タブの中では、高さいっぱいに使う
@@ -203,6 +250,14 @@ class ConsoleWindow(QMainWindow):
         clear = QAction('軌跡を消す', self)
         clear.triggered.connect(self.node.state.clear_trail)
         bar.addAction(clear)
+        bar.addSeparator()
+        for text, attr in (('地図', 'show_map'), ('LiDAR の点', 'show_scan')):
+            toggle = QAction(text, self)
+            toggle.setCheckable(True)
+            toggle.setChecked(True)
+            toggle.toggled.connect(lambda on, a=attr: (setattr(self.trail, a, on),
+                                                       self.trail.update()))
+            bar.addAction(toggle)
         for button in bar.findChildren(QToolButton):
             button.setFocusPolicy(Qt.NoFocus)
 
@@ -222,6 +277,7 @@ class ConsoleWindow(QMainWindow):
             column.addWidget(group, stretch)
         tabs.addTab(drive, '操縦')
         tabs.addTab(self.robot, 'ロボット')
+        tabs.addTab(self.lidar, 'LiDAR')
         tabs.addTab(self.status, '状態')
         self.tabs = tabs
 
@@ -252,11 +308,11 @@ class ConsoleWindow(QMainWindow):
             return
         snap = self.node.state.snapshot(time.monotonic())
         self.stopped = snap.stopped
-        for view in (self.robot, self.speed, self.trail, self.status):
+        for view in (self.robot, self.speed, self.trail, self.lidar, self.status):
             view.set_snapshot(snap)
         self.keypad.set_keys(self.keys, self.isActiveWindow(), snap.stopped)
         self.update_header(snap)
-        x, y, yaw = snap.pose
+        x, y, yaw = snap.map_pose
         speed = f'{math.hypot(snap.actual[0], snap.actual[1]):.2f} m/s' \
             if snap.actual is not None else '--'
         self.statusBar().showMessage(
