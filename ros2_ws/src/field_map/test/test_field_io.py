@@ -7,7 +7,7 @@ import pytest
 
 def grid_from(text):
     """文字の絵(# が物、上の行が +y)からマス目を作る(row 0 が下)."""
-    rows = [line for line in text.strip('\n').split('\n')]
+    rows = text.strip('\n').split('\n')
     return [[ch == '#' for ch in row] for row in reversed(rows)]
 
 
