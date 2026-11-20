@@ -69,6 +69,7 @@ git pull origin main      # 最新にする
 | STM32 のプログラムまで含めたシミュレーション | `./sim.sh fw` |
 | rviz2 も開く / ゲームパッドでも操縦 | 後ろに `rviz` / `joy` を付ける(例:`./sim.sh fw rviz`) |
 | ギア比と寸法の設定画面 | `ros ros2 run swerve_drive drive_setup` |
+| フィールドの形を編集する画面 | `ros ros2 run field_map field_editor` |
 | コンテナ(開発環境)の中に入る | `ros` |
 | STM32 に書き込む | `ros make -C /root/firmware/motor_node_f303k8 APP=swerve NODE_ID=1 flash` |
 | テストを全部動かす | `docker compose run --rm build` |
@@ -132,5 +133,5 @@ e2igmq_test/
 | スワーブのファームウェア(`APP=swerve`)を実機のモーターで | ⬜ まだ |
 | Raspberry Pi で動かす、Wi-Fi での操縦 | ⬜ まだ |
 | CAN での通信 | ⬜ まだ(先に [クロックの注意](firmware/motor_node_f303k8/README.md#can-を実機で使う前にクロックの精度) を読む) |
-| フィールドの地図(`field_map`) | ✅ 作れる(フィールドの形はまだ例) |
+| フィールドの地図(`field_map`) | ✅ 作れる。画面で編集・図をなぞれる(フィールドの形はまだ例) |
 | 自動操縦(Nav2 など) | ⬜ 必要になったら作る |

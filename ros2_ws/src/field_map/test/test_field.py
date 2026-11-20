@@ -156,3 +156,79 @@ def test_resolve_field_path(tmp_path):
     assert fm.resolve_field_path('/x/y.yaml') == '/x/y.yaml'          # パスはそのまま
     # 見つからなければ、最後の候補を返す(エラーの知らせに場所が出るように)
     assert fm.resolve_field_path('none', [str(tmp_path)]).startswith(str(tmp_path / 'none'))
+
+
+def test_heights_split_the_two_maps():
+    # LiDAR 0.2 m、ロボット 0.6 m、0.01 m までは乗り越えられる
+    field = make([{'type': 'box', 'x': -0.5, 'y': 0.5, 'size_x': 0.2, 'size_y': 0.2,
+                   'height': 0.5},                                   # 高い台: どちらにも入る
+                  {'type': 'box', 'x': 0.5, 'y': 0.5, 'size_x': 0.2, 'size_y': 0.2,
+                   'height': 0.1},                                   # 低いボックス: LiDAR に映らない
+                  {'type': 'box', 'x': -0.5, 'y': -0.5, 'size_x': 0.2, 'size_y': 0.2,
+                   'z_min': 0.7, 'z_max': 0.8},                      # 上の棚: くぐれる、映らない
+                  {'type': 'box', 'x': 0.5, 'y': -0.5, 'size_x': 0.2, 'size_y': 0.2,
+                   'height': 0.005}])                                # テープ: 通れる
+    field.lidar_heights, field.robot_height, field.step_height = (0.2,), 0.6, 0.01
+    nav = fm.rasterize(field, fm.NAV)
+    lidar = fm.rasterize(field, fm.LIDAR)
+    assert occupied(field, nav, -0.5, 0.5) and occupied(field, lidar, -0.5, 0.5)
+    assert occupied(field, nav, 0.5, 0.5) and not occupied(field, lidar, 0.5, 0.5)
+    assert not occupied(field, nav, -0.5, -0.5) and not occupied(field, lidar, -0.5, -0.5)
+    assert not occupied(field, nav, 0.5, -0.5) and not occupied(field, lidar, 0.5, -0.5)
+    picture = fm.preview(field, nav, lidar, columns=20)
+    assert '#' in picture and '+' in picture
+
+
+def test_shelf_seen_by_a_high_lidar_but_passable():
+    # LiDAR がロボットより上(0.75 m)にあると、上の棚は映るが下はくぐれる → ^
+    field = make([{'type': 'box', 'x': 0.0, 'y': 0.0, 'size_x': 0.4, 'size_y': 0.4,
+                   'z_min': 0.7, 'z_max': 0.8}])
+    field.lidar_heights, field.robot_height = (0.75,), 0.6
+    nav, lidar = fm.rasterize(field, fm.NAV), fm.rasterize(field, fm.LIDAR)
+    assert not occupied(field, nav, 0.0, 0.0) and occupied(field, lidar, 0.0, 0.0)
+    assert '^' in fm.preview(field, nav, lidar, columns=20)
+
+
+def test_without_heights_both_maps_are_the_same():
+    field = make([{'type': 'box', 'x': 0.0, 'y': 0.0, 'size_x': 0.4, 'size_y': 0.4,
+                   'height': 0.1}], border=0.1)
+    assert fm.rasterize(field, fm.NAV) == fm.rasterize(field, fm.LIDAR)
+
+
+def test_height_settings_are_read_and_checked():
+    data = {'field': {'x_range': [-1, 1], 'y_range': [-1, 1], 'lidar_height': [0.2, 0.5],
+                      'robot_height': 0.6, 'step_height': 0.01},
+            'shapes': [{'type': 'circle', 'x': 0, 'y': 0, 'radius': 0.1, 'z_min': 0.1,
+                        'z_max': 0.3}]}
+    field = fm.parse_field(data)
+    assert field.lidar_heights == (0.2, 0.5) and field.robot_height == 0.6
+    assert (field.shapes[0].z_min, field.shapes[0].z_max) == (0.1, 0.3)
+    one = fm.parse_field({'field': {'x_range': [-1, 1], 'y_range': [-1, 1],
+                                    'lidar_height': 0.3}})
+    assert one.lidar_heights == (0.3,)
+
+
+@pytest.mark.parametrize('field_info,shape', [
+    ({'robot_height': 0}, None),
+    ({'step_height': -0.1}, None),
+    ({'lidar_height': -1}, None),
+    ({'robot_height': 0.3, 'step_height': 0.3}, None),
+    ({}, {'type': 'box', 'x': 0, 'y': 0, 'size_x': 1, 'size_y': 1, 'z_min': 0.5, 'z_max': 0.2}),
+    ({}, {'type': 'box', 'x': 0, 'y': 0, 'size_x': 1, 'size_y': 1, 'height': 0.5, 'z_max': 1}),
+])
+def test_bad_height_settings(field_info, shape):
+    data = {'field': dict({'x_range': [-1, 1], 'y_range': [-1, 1]}, **field_info),
+            'shapes': [shape] if shape else []}
+    with pytest.raises(fm.FieldError):
+        fm.parse_field(data)
+
+
+def test_gn10_heights_are_used(tmp_path):
+    path = tmp_path / 'gn10.json'
+    path.write_text(json.dumps([
+        {'type': 'BOX', 'x': 0.0, 'y': 0.0, 'half_x': 0.3, 'half_y': 0.3, 'z_min': 0.0,
+         'z_max': 0.2},
+        {'type': 'CYLINDER', 'x': 0.0, 'y': 1.0, 'radius': 0.1, 'z_min': 0.6, 'z_max': 0.86},
+    ]), encoding='utf-8')
+    field = fm.load_field(str(path))
+    assert [(s.z_min, s.z_max) for s in field.shapes] == [(0.0, 0.2), (0.6, 0.86)]

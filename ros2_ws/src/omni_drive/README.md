@@ -48,7 +48,7 @@ source install/setup.bash
 ros2 launch omni_drive omni.launch.py sim:=true console:=true
 ```
 
-**ロボットコンソール**(スワーブと共通。`swerve_drive/README.md`)が開きます。「ロボット」のカードの矢印は、各ホイールが**床を押す向きと速さ**です(緑が実際、白い点線が目標)。
+**ロボットコンソール**(スワーブと共通。`swerve_drive/README.md`)が開きます。右の「ロボット」のタブの矢印は、各ホイールが**床を押す向きと速さ**です(緑が実際、白い点線が目標)。
 コンソールを選んだまま、W / A / S / D で移動、Q / E で回転、Shift で速くなります。Esc か停止ボタンで止まります。
 
 ### 2. 実機で動かす

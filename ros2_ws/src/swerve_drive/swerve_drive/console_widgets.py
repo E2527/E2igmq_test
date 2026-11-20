@@ -1,7 +1,6 @@
 """
 ロボットコンソールの画面の部品(PyQt5).
 
-    Card        … 角の丸い枠と見出し。下の部品を 1 つ入れる
     RobotView   … ロボットを上から見た図(各モジュール / ホイールの矢印、進む向き、回転)
     TrailView   … 走った軌跡(地図)
     SpeedGauges … 前後・左右・回転の、指令の速さと実際の速さ
@@ -19,45 +18,10 @@ import math
 
 from PyQt5.QtCore import pyqtSignal, QPointF, QRectF, Qt
 from PyQt5.QtGui import QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPolygonF
-from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QWidget
 
 from . import console_state as cs
 from . import console_theme as th
-
-
-class Card(QFrame):
-    """角の丸い枠と見出し."""
-
-    def __init__(self, title, tag, body, action=None):
-        super().__init__()
-        self.setObjectName('card')
-        self.body = body
-        self.box = QVBoxLayout(self)
-        self.head = QHBoxLayout()
-        self.title_label = QLabel(title)
-        self.title_label.setStyleSheet(f'color: {th.TEXT};')
-        self.tag_label = QLabel(tag)
-        self.tag_label.setStyleSheet(f'color: {th.FAINT};')
-        self.head.addWidget(self.title_label)
-        self.head.addWidget(self.tag_label)
-        self.head.addStretch(1)
-        if action is not None:
-            self.head.addWidget(action)
-        self.box.addLayout(self.head)
-        self.box.addWidget(body, 1)
-        self.set_scale(1.0)
-
-    def set_scale(self, k):
-        """枠・見出し・中の部品を、倍率 k の大きさにする."""
-        self.setStyleSheet(
-            f'#card {{ background: {th.CARD}; border: 1px solid {th.EDGE};'
-            f' border-radius: {round(18 * k)}px; }}')
-        self.box.setContentsMargins(round(18 * k), round(14 * k), round(18 * k), round(16 * k))
-        self.box.setSpacing(round(10 * k))
-        self.head.setSpacing(round(10 * k))
-        self.title_label.setFont(th.font(11, bold=True, scale=k))
-        self.tag_label.setFont(th.font(8, bold=True, spacing=2.0, scale=k))
-        self.body.set_scale(k)
 
 
 class _View(QWidget):
@@ -92,6 +56,7 @@ class _View(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.TextAntialiasing)
+        p.fillRect(self.rect(), th.color(th.CARD))      # 図の部分の背景(エディタの図と同じ色)
         p.scale(self.k, self.k)     # ここから先は、倍率 1 のときの大きさで描けばよい
         return p
 
@@ -466,15 +431,15 @@ class KeyPad(_View):
             p.drawRoundedRect(rect, 12, 12)
             cap, action = labels[name]
             if name == 'shift':
-                p.setPen(th.color('#06121a' if on else th.TEXT))
+                p.setPen(th.color('#ffffff' if on else th.TEXT))
                 p.setFont(th.font(11, bold=True))
                 p.drawText(rect, Qt.AlignCenter, f'{cap}  {action}')
                 continue
-            p.setPen(th.color('#06121a' if on else th.TEXT))
+            p.setPen(th.color('#ffffff' if on else th.TEXT))
             p.setFont(th.font(15, bold=True))
             p.drawText(QRectF(rect.left(), rect.top() + rect.height() * 0.10, rect.width(),
                               rect.height() * 0.5), Qt.AlignCenter, cap)
-            p.setPen(th.color('#06121a' if on else th.DIM))
+            p.setPen(th.color('#ffffff' if on else th.DIM))
             p.setFont(th.font(8))
             p.drawText(QRectF(rect.left(), rect.top() + rect.height() * 0.58, rect.width(),
                               rect.height() * 0.32), Qt.AlignCenter, action)
