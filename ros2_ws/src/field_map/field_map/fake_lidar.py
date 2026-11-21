@@ -6,8 +6,9 @@ LiDAR が見るはずの距離を計算して /scan(sensor_msgs/LaserScan)に出
 
     ros2 run field_map fake_lidar
 
-ロボットの位置は TF(map → base_link)から読む。読めなければ /odom を使う
-(シミュレーションでは map と odom を同じにしているので、どちらでも同じ)。
+ロボットの位置は、シミュレーションの本当の位置(/sim/truth。sim_world_node が出す)を使う。
+届いていなければ TF(map → base_link)、それもなければ /odom を使う。
+シミュレーターで置いた障害物(/sim/obstacles)と、LiDAR のばらつき(/sim/faults の lidar_noise)も反映する。
 base_link → laser の TF(LiDAR の取り付け位置)も、このノードが出す。
 
 パラメータ:
@@ -19,10 +20,12 @@ base_link → laser の TF(LiDAR の取り付け位置)も、このノードが�
     map_topic     … 使う地図(lidar_map)
 """
 
+import json
 import math
 import random
+import time
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 import rclpy
 from rclpy.duration import Duration
@@ -31,6 +34,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 from tf2_ros import Buffer, StaticTransformBroadcaster, TransformException, TransformListener
 
 from . import lidar_sim as ls
@@ -59,12 +63,18 @@ class FakeLidar(Node):
         self.map_frame = p('map_frame', 'map').value
         self.grid = None
         self.odom_pose = None
+        self.truth = None           # (受け取った時刻, (x, y, 向き))
+        self.circles = []           # シミュレーターで置いた障害物 [(x, y, 半径)]
+        self.noise_override = None  # /sim/faults の lidar_noise
         self.warned = False
 
         self.pub = self.create_publisher(LaserScan, 'scan', 10)
         self.create_subscription(OccupancyGrid, p('map_topic', 'lidar_map').value, self.on_map,
                                  MAP_QOS)
         self.create_subscription(Odometry, 'odom', self.on_odom, 10)
+        self.create_subscription(PoseStamped, '/sim/truth', self.on_truth, 10)
+        self.create_subscription(String, '/sim/obstacles', self.on_obstacles, MAP_QOS)
+        self.create_subscription(String, '/sim/faults', self.on_faults, MAP_QOS)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.publish_laser_tf()
@@ -92,8 +102,28 @@ class FakeLidar(Node):
         pose = msg.pose.pose
         self.odom_pose = (pose.position.x, pose.position.y, yaw_of(pose.orientation))
 
+    def on_truth(self, msg):
+        p = msg.pose
+        self.truth = (time.monotonic(), (p.position.x, p.position.y, yaw_of(p.orientation)))
+
+    def on_obstacles(self, msg):
+        try:
+            self.circles = [(float(c[0]), float(c[1]), max(0.01, float(c[2])))
+                            for c in json.loads(msg.data)]
+        except (ValueError, TypeError, IndexError):
+            self.circles = []
+
+    def on_faults(self, msg):
+        try:
+            noise = json.loads(msg.data).get('lidar_noise')
+            self.noise_override = None if noise is None else max(0.0, float(noise))
+        except (ValueError, TypeError, AttributeError):
+            self.noise_override = None
+
     def robot_pose(self):
-        """地図の座標でのロボットの位置と向き."""
+        """地図の座標でのロボットの位置と向き(本当の位置 → TF → /odom の順に使う)."""
+        if self.truth is not None and time.monotonic() - self.truth[0] < 0.5:
+            return self.truth[1]
         try:
             t = self.tf_buffer.lookup_transform(self.map_frame, self.base_frame, Time(),
                                                 timeout=Duration(seconds=0.0))
@@ -114,9 +144,10 @@ class FakeLidar(Node):
         ox, oy = self.laser[0], self.laser[1]
         lx, ly = x + c * ox - s * oy, y + s * ox + c * oy     # LiDAR の位置(地図の座標)
         ranges = ls.scan(self.grid, lx, ly, yaw + self.laser[2], -math.pi, self.step, self.count,
-                         self.range_max)
-        if self.noise > 0:
-            ranges = [r + random.gauss(0.0, self.noise) if math.isfinite(r) else r for r in ranges]
+                         self.range_max, self.circles)
+        noise = self.noise if self.noise_override is None else self.noise_override
+        if noise > 0:
+            ranges = [r + random.gauss(0.0, noise) if math.isfinite(r) else r for r in ranges]
         msg = LaserScan()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame

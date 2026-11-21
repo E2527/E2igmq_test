@@ -62,3 +62,20 @@ def test_bad_grid():
         ls.GridMap(2, 2, 0.1, 0, 0, [0, 0, 0])
     with pytest.raises(ValueError):
         ls.GridMap(0, 2, 0.1, 0, 0, [])
+
+
+def test_circles():
+    assert ls.cast_circles(0.0, 0.0, 0.0, [(2.0, 0.0, 0.5)], 10) == pytest.approx(1.5)
+    assert ls.cast_circles(0.0, 0.0, math.pi, [(2.0, 0.0, 0.5)], 10) == math.inf   # 後ろ
+    assert ls.cast_circles(0.0, 0.0, 0.0, [(2.0, 1.0, 0.5)], 10) == math.inf      # 横を通る
+    assert ls.cast_circles(0.0, 0.0, 0.0, [(0.1, 0.0, 0.5)], 10) == 0.0           # 中にいる
+    assert ls.cast_circles(0.0, 0.0, 0.0, [(2.0, 0.0, 0.5)], 1.0) == math.inf     # 届かない
+    nearest = ls.cast_circles(0.0, 0.0, 0.0, [(3.0, 0.0, 0.5), (1.5, 0.0, 0.2)], 10)
+    assert nearest == pytest.approx(1.3)
+
+
+def test_scan_with_obstacle_in_front_of_wall():
+    grid = room()
+    ranges = ls.scan(grid, 0.5, 0.5, 0.0, 0.0, math.pi, 2, 10, circles=[(1.0, 0.5, 0.1)])
+    assert ranges[0] == pytest.approx(0.4)          # 壁(1.4 m 先)より手前の障害物
+    assert ranges[1] == pytest.approx(0.4)          # 後ろは壁

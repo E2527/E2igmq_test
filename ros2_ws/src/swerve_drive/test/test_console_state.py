@@ -1,5 +1,6 @@
 import math
 
+import pytest
 from swerve_drive import console_state as cs
 from swerve_drive.console_state import Arrow, ConsoleState, ERROR, OK, STALE, WARN
 
@@ -118,3 +119,31 @@ def test_scan_points_skip_bad_ranges_and_apply_the_mount():
                             range_max=10.0, laser_pose=(0.1, 0.0, 0.0))
     # 1 本目は前に 1 m、4 本目は 270°(右)に 2 m。LiDAR がロボットの中心より 0.1 m 前
     assert [tuple(round(v, 6) for v in p) for p in points] == [(1.1, 0.0), (0.1, -2.0)]
+
+
+def test_stm_rows_rates_and_ages():
+    state = cs.ConsoleState()
+    for i in range(10):
+        state.on_stm(2, 'command', [0.1 * i, 1.0], now=10.0 + i * 0.1)
+    state.on_stm(2, 'state', [0.5, 0.9], now=10.8)
+    state.on_stm(1, 'state', [0.0, 0.0], now=5.0)
+    rows = state.snapshot(11.0).stm_rows
+    assert [r.dev_id for r in rows] == [1, 2]
+    one, two = rows
+    assert one.command == () and one.command_age is None and one.state_rate == 0.0
+    assert two.command[0] == pytest.approx(0.9) and two.command_rate == pytest.approx(10.0)
+    assert two.state_age == pytest.approx(0.2)
+
+
+def test_history_and_truth():
+    state = cs.ConsoleState()
+    state.on_cmd(0.5, 0.0, 0.0, now=0.0)
+    state.on_stm(1, 'command', [1.0, 2.0], now=0.0)
+    for i in range(30):
+        state.sample(i * 1.0)
+    snap = state.snapshot(29.0)
+    assert len(snap.history) == 21 and snap.history[0].t == 9.0     # 20 秒分だけ残る
+    assert state.snapshot(0.0).truth is None
+    state.set_truth(1.0, 2.0, 0.5, now=30.0)
+    assert state.snapshot(30.5).truth == (1.0, 2.0, 0.5)
+    assert state.snapshot(32.0).truth is None

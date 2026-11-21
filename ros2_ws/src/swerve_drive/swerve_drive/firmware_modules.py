@@ -19,6 +19,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 
 from . import firmware_sim
+from .sim_faults import SimFaults
 
 
 class FirmwareModules(Node):
@@ -50,13 +51,14 @@ class FirmwareModules(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{dev_id}/command',
                 lambda msg, i=i: self.on_command(i, msg), 10)
+        self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.period = 1.0 / rate_hz
         self.create_timer(self.period, self.step)
         self.get_logger().info(
             f'ID {self.ids} のモジュールを、{firmware_dir} のファームウェアで動かしています')
 
     def on_command(self, index, msg):
-        if len(msg.data) >= 2:
+        if len(msg.data) >= 2 and not self.faults.dead(self.ids[index]):
             self.targets[index] = (time.monotonic(), float(msg.data[0]), float(msg.data[1]))
 
     def step(self):
@@ -64,7 +66,9 @@ class FirmwareModules(Node):
         for i, (received, angle, speed) in enumerate(self.targets):
             running = now - received < self.timeout_s    # 指令が途切れたら止まる(ファームウェアと同じ)
             out = self.sims[i].run(angle, speed, running, self.period)
-            self.state_pubs[i].publish(Float32MultiArray(data=out[:2]))
+            state = self.faults.state(self.ids[i], out[:2])
+            if state is not None:
+                self.state_pubs[i].publish(Float32MultiArray(data=state))
             self.true_pubs[i].publish(Float32MultiArray(data=out[2:]))
 
     def destroy_node(self):

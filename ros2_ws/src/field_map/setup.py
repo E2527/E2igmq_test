@@ -33,6 +33,7 @@ setup(
             'make_map = field_map.make_map:main',
             'field_editor = field_map.field_editor:main',
             'fake_lidar = field_map.fake_lidar:main',
+            'sim_world_node = field_map.sim_world_node:main',
         ],
     },
 )

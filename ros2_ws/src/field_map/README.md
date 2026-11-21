@@ -129,6 +129,21 @@ shapes:
 - LiDAR の取り付け位置は `laser_x` / `laser_y` / `laser_yaw_deg`(`base_link → laser` の TF も出す)。
 - 計算は `field_map/lidar_sim.py`(ROS に依存しない。`test/test_lidar_sim.py`)。
 
+## シミュレーションの世界(`sim_world_node`)
+
+`./sim.sh` で、地図のノード・シミュレーション用の LiDAR と一緒に起動します(`launch/sim_world.launch.py`)。
+
+- ロボットの「本当の位置」(`/sim/truth`)を持ちます。オドメトリの動きに、シミュレーターで入れたタイヤの滑りと向きのずれを足して進めるので、本当の位置とオドメトリがずれていきます。シミュレーション用の LiDAR は本当の位置から見た物を出します。
+- `/sim/teleport` でロボットを置き直します(シミュレーターの「ロボットを置く」)。TF の `map → odom` もこのノードが出します。
+- フィールドのファイルの `field: start_poses:` を、シミュレーターのスタート位置のボタンにします。`./sim.sh` の代わりに `ros2 launch swerve_drive swerve.launch.py sim:=true console:=true start:=red` とすると、最初から赤の位置に置きます。
+
+```yaml
+field:
+  start_poses:
+    red: {x: -2.5, y: -1.5, yaw_deg: 0}
+    blue: {x: -2.5, y: 1.5, yaw_deg: 0}
+```
+
 ## Nav2 の map_server で使うとき
 
 `field_map_node` の代わりに Nav2 の `map_server` を使うときは、画像と設定のファイルを書き出します。
@@ -146,7 +161,8 @@ ros ros2 run field_map make_map example -o /root/ros2_ws/maps/example   # exampl
 | `field_map/make_map.py` | 地図をターミナルに出す / 画像に書き出すコマンド |
 | `field_map/field_editor.py` | フィールドエディタ(画面。PC 用) |
 | `field_map/fake_lidar.py` / `lidar_sim.py` | シミュレーション用の LiDAR(`/scan`)と、その計算 |
-| `launch/sim_world.launch.py` | シミュレーションの世界(地図 + LiDAR + `map → odom`)。`./sim.sh` が読み込む |
+| `field_map/sim_world_node.py` / `sim_truth.py` | シミュレーションの本当の位置・置き直し・`map → odom`(計算は `sim_truth.py`。テストあり) |
+| `launch/sim_world.launch.py` | シミュレーションの世界(地図 + LiDAR + 本当の位置)。`./sim.sh` が読み込む |
 | `field_map/field_io.py` | エディタの読み書き、画像の位置合わせ、画像から図形を作る計算(`test/test_field_io.py`) |
 | `fields/` | フィールドのファイル(`example.yaml` は例。本物のフィールドに合わせて書き直す) |
 

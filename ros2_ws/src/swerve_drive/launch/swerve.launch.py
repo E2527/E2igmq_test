@@ -80,13 +80,15 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('field', default_value='example'),
         DeclareLaunchArgument('lidar', default_value='true'),
+        DeclareLaunchArgument('start', default_value=''),
 
         # シミュレーションの世界(sim のとき): フィールドの地図と、シミュレーション用の LiDAR
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(
                 get_package_share_directory('field_map'), 'launch', 'sim_world.launch.py')),
             launch_arguments={'field': LaunchConfiguration('field'),
-                              'lidar': LaunchConfiguration('lidar')}.items(),
+                              'lidar': LaunchConfiguration('lidar'),
+                              'start': LaunchConfiguration('start')}.items(),
             condition=IfCondition(LaunchConfiguration('sim'))),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
@@ -101,7 +103,8 @@ def generate_launch_description():
         # 操縦と表示(PC で)。PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'teleop.launch.py')),
-            launch_arguments={'console': LaunchConfiguration('console'), 'joy': joy,
+            launch_arguments={'console': LaunchConfiguration('console'),
+                              'simulator': LaunchConfiguration('sim'), 'joy': joy,
                               'rviz': 'false'}.items()),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],

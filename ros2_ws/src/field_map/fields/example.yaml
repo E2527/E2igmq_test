@@ -26,6 +26,11 @@ field:
   robot_height: 0.60        # ロボットの高さ。これより上にある物の下はくぐれる
   step_height: 0.01         # 乗り越えられる高さ。これ以下の物(テープなど)は通れる
 
+  # スタート位置(シミュレーターのボタンで置ける。yaw_deg は向き [度]、0 が +x)
+  start_poses:
+    red: {x: -2.5, y: -1.5, yaw_deg: 0}
+    blue: {x: -2.5, y: 1.5, yaw_deg: 0}
+
 # ふさがっている場所(壁・台・柱など)。通れる物(床のテープ、低い段差)は書かないか passable: true
 #   box     … 箱。中心 x, y と、大きさ size_x, size_y [m]。yaw_deg で回せる(反時計回りが正)
 #   circle  … 円。中心 x, y と半径 radius [m]

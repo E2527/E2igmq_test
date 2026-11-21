@@ -69,7 +69,39 @@ def cast(grid, x, y, angle, range_max):
     return math.inf
 
 
-def scan(grid, x, y, yaw, angle_min, angle_increment, count, range_max):
-    """ロボットの位置 (x, y)・向き yaw から、count 本の光の距離の並び(LaserScan の ranges と同じ)."""
-    return [cast(grid, x, y, yaw + angle_min + i * angle_increment, range_max)
-            for i in range(count)]
+def cast_circles(x, y, angle, circles, range_max):
+    """
+    (x, y) から angle の向きの光が、円 [(cx, cy, r)] のどれかに当たる距離 [m].
+
+    当たらなければ math.inf。円の中にいるときは 0。
+    """
+    dx, dy = math.cos(angle), math.sin(angle)
+    best = math.inf
+    for cx, cy, r in circles:
+        ox, oy = cx - x, cy - y
+        along = ox * dx + oy * dy                  # 光の向きに、円の中心までどれだけ進むか
+        d2 = ox * ox + oy * oy - along * along     # 光と円の中心の距離の 2 乗
+        if d2 > r * r:
+            continue
+        if ox * ox + oy * oy <= r * r:
+            return 0.0
+        t = along - math.sqrt(r * r - d2)
+        if 0 <= t < best:
+            best = t
+    return best if best <= range_max else math.inf
+
+
+def scan(grid, x, y, yaw, angle_min, angle_increment, count, range_max, circles=()):
+    """
+    ロボットの位置 (x, y)・向き yaw から、count 本の光の距離の並び(LaserScan の ranges と同じ).
+
+    circles … 地図にない障害物の円 [(cx, cy, r)](シミュレーターで置いた物)
+    """
+    out = []
+    for i in range(count):
+        angle = yaw + angle_min + i * angle_increment
+        d = cast(grid, x, y, angle, range_max)
+        if circles:
+            d = min(d, cast_circles(x, y, angle, circles, range_max))
+        out.append(d)
+    return out

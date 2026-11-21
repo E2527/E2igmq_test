@@ -24,6 +24,31 @@ LEVEL_TEXT = {OK: 'OK', WARN: '注意', ERROR: 'エラー', STALE: '届いてい
 TRAIL_STEP = 0.02       # これ以上動いたら、軌跡に点を足す [m]
 TRAIL_MAX = 4000        # 軌跡の点の数の上限(古い点から消える)
 SCAN_TIMEOUT_S = 1.0    # LiDAR の点がこれ以上来なければ、表示しない
+HISTORY_S = 20.0        # グラフに残す長さ [s]
+RATE_WINDOW_S = 1.0     # 通信の回数を数える長さ [s]
+
+
+@dataclass(frozen=True)
+class StmRow:
+    """通信の一覧の 1 行(STM32 1 枚分)."""
+
+    dev_id: int
+    command: tuple      # 最後の指令(届いていなければ ())
+    command_rate: float     # 指令の回数 [回/秒]
+    command_age: float      # 最後の指令から何秒たったか(届いていなければ None)
+    state: tuple
+    state_rate: float
+    state_age: float
+
+
+@dataclass(frozen=True)
+class Sample:
+    """グラフ用に、ある時刻の値をまとめたもの."""
+
+    t: float
+    command: tuple          # 指令の速さ (前後, 左右, 回転)
+    actual: tuple           # 実際の速さ(届いていなければ None)
+    stm: dict               # {ID: (指令の値, 状態の値)}
 
 
 @dataclass(frozen=True)
@@ -108,6 +133,9 @@ class Snapshot:
     grid: MapData = None                # 地図(届いていなければ None)
     scan: list = field(default_factory=list)        # LiDAR の点 [(x, y)](ロボットから見た位置)
     odom_in_map: tuple = (0.0, 0.0, 0.0)    # odom の座標が、地図のどこにあるか
+    stm_rows: list = field(default_factory=list)    # 通信の一覧
+    history: list = field(default_factory=list)     # グラフ用の値 [Sample]
+    truth: tuple = None                 # シミュレーションの本当の位置(地図の座標。なければ None)
 
     @property
     def map_pose(self):
@@ -145,6 +173,10 @@ class ConsoleState:
         self._scan = []
         self._scan_time = None
         self._odom_in_map = (0.0, 0.0, 0.0)
+        self._stm = {}                  # (ID, 'command' / 'state') → (時刻, 値, 届いた時刻の並び)
+        self._history = deque()
+        self._truth = None
+        self._truth_time = None
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -207,13 +239,38 @@ class ConsoleState:
         with self._lock:
             self._odom_in_map = (x, y, yaw)
 
+    def on_stm(self, dev_id, kind, values, now):
+        """stm<ID>/command か stm<ID>/state が届いた(kind は 'command' か 'state')."""
+        with self._lock:
+            key = (int(dev_id), kind)
+            times = self._stm[key][2] if key in self._stm else deque()
+            times.append(now)
+            while times and now - times[0] > RATE_WINDOW_S:
+                times.popleft()
+            self._stm[key] = (now, tuple(float(v) for v in values), times)
+
+    def set_truth(self, x, y, yaw, now):
+        """シミュレーションの本当の位置(/sim/truth)."""
+        with self._lock:
+            self._truth = (x, y, yaw)
+            self._truth_time = now
+
+    def sample(self, now):
+        """グラフ用に、今の値を 1 つ記録する(画面が定期的に呼ぶ)."""
+        snap = self.snapshot(now, with_history=False)
+        stm = {r.dev_id: (r.command, r.state) for r in snap.stm_rows}
+        with self._lock:
+            self._history.append(Sample(now, snap.command, snap.actual, stm))
+            while self._history and now - self._history[0].t > HISTORY_S:
+                self._history.popleft()
+
     def clear_trail(self):
         with self._lock:
             self._trail.clear()
 
     # ---- 読む(画面から) ----
 
-    def snapshot(self, now) -> Snapshot:
+    def snapshot(self, now, with_history=True) -> Snapshot:
         with self._lock:
             snap = Snapshot(pose=self._pose, trail=list(self._trail), drive=self._drive)
             if self._cmd_time is not None and now - self._cmd_time < self.cmd_timeout_s:
@@ -227,6 +284,11 @@ class ConsoleState:
             snap.odom_in_map = self._odom_in_map
             if self._scan_time is not None and now - self._scan_time < SCAN_TIMEOUT_S:
                 snap.scan = list(self._scan)
+            if self._truth_time is not None and now - self._truth_time < SCAN_TIMEOUT_S:
+                snap.truth = self._truth
+            snap.stm_rows = self._stm_rows(now)
+            if with_history:
+                snap.history = list(self._history)
             snap.stopped = self._stopped(now)
             snap.capped = self._capped(snap.command, snap.actual)
             for name in sorted(self._items):
@@ -237,6 +299,21 @@ class ConsoleState:
                 snap.rows.append(Row(name, level, message, text))
             snap.level, snap.summary = self._summary(snap)
             return snap
+
+    def _stm_rows(self, now):
+        rows = []
+        for dev_id in sorted({k[0] for k in self._stm}):
+            parts = []
+            for kind in ('command', 'state'):
+                entry = self._stm.get((dev_id, kind))
+                if entry is None:
+                    parts += [(), 0.0, None]
+                    continue
+                t, values, times = entry
+                recent = sum(1 for x in times if now - x <= RATE_WINDOW_S)
+                parts += [values, recent / RATE_WINDOW_S, now - t]
+            rows.append(StmRow(dev_id, *parts))
+        return rows
 
     def _stopped(self, now):
         # ボタンを押した直後は、足回りの知らせ(1 秒ごと)がまだ古いので、自分の指示を信じる

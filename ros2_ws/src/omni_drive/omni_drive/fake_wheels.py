@@ -16,6 +16,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
+from swerve_drive.sim_faults import SimFaults
 
 
 class FakeWheels(Node):
@@ -35,12 +36,13 @@ class FakeWheels(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{board}/command',
                 lambda msg, b=board: self.on_command(b, msg), 10)
+        self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.dt = 1.0 / rate_hz
         self.create_timer(self.dt, self.step)
         self.get_logger().info(f'ID {self.boards} の STM32(モーター 2 個)のふりをしています')
 
     def on_command(self, board, msg):
-        if len(msg.data) >= 2:
+        if len(msg.data) >= 2 and not self.faults.dead(board):
             self.targets[board] = (time.monotonic(), [float(msg.data[0]), float(msg.data[1])])
 
     def step(self):
@@ -52,7 +54,9 @@ class FakeWheels(Node):
             speed = self.speeds[board]
             for k in range(2):
                 speed[k] += gain * (target[k] - speed[k])
-            self.pubs[board].publish(Float32MultiArray(data=list(speed)))
+            state = self.faults.state(board, speed)
+            if state is not None:
+                self.pubs[board].publish(Float32MultiArray(data=state))
 
 
 def main():
