@@ -101,7 +101,7 @@ e2igmq_test/
 │   ├── motor_node_f303k8/ …   Nucleo-F303K8 用のプロジェクト(make でビルド・書き込み)
 │   ├── sim/               …   STM32 のプログラムを PC のシミュレーションで動かす部分
 │   └── lib/               …   ST の HAL / CMSIS(git サブモジュール)
-├── tools/                 … おまけの道具(desktop: デスクトップのアイコン、ascii-video: 動画を文字アートにする)
+├── tools/                 … おまけの道具(ascii-video: 動画を文字アートにする)
 └── .github/workflows/     … CI(push のたびに動く自動テスト)
 ```
 
