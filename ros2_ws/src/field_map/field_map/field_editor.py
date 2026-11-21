@@ -237,18 +237,24 @@ class ShapeItem(QGraphicsItem):
             self.editor.commit()
             return
         super().mouseReleaseEvent(event)
+        # いっしょに選んでいた図形も Qt が動かしているので、全部の動いた分を図形の座標に足す
+        self.editor.apply_moves()
+
+    def apply_move(self):
+        """ドラッグで動いた分(pos)を図形の座標に足して、pos を 0 に戻す。動いていれば True."""
         moved = self.pos()
-        if moved.x() or moved.y():                      # ドラッグで動いた分を、図形の座標に足す
-            dx, dy = self.editor.snap_delta(moved.x(), -moved.y(), self.center())
-            self.prepareGeometryChange()
-            self.setPos(0, 0)
-            d = self.shape_data
-            if d['type'] == 'polygon':
-                d['points'] = [[px + dx, py + dy] for px, py in d['points']]
-            else:
-                d['x'], d['y'] = d['x'] + dx, d['y'] + dy
-            self.update_label()
-            self.editor.commit()
+        if not (moved.x() or moved.y()):
+            return False
+        dx, dy = self.editor.snap_delta(moved.x(), -moved.y(), self.center())
+        self.prepareGeometryChange()
+        self.setPos(0, 0)
+        d = self.shape_data
+        if d['type'] == 'polygon':
+            d['points'] = [[px + dx, py + dy] for px, py in d['points']]
+        else:
+            d['x'], d['y'] = d['x'] + dx, d['y'] + dy
+        self.update_label()
+        return True
 
     def hoverMoveEvent(self, event):
         kind = self.handle_at(event.scenePos()) if self.isSelected() else None
@@ -669,6 +675,12 @@ class FieldEditor(QMainWindow):
             item.update_label()
             item.update()
         self.scene.update()
+
+    def apply_moves(self):
+        """ドラッグで動いた図形を全部、図形の座標に反映して、変更を 1 つ記録する."""
+        moved = [item.apply_move() for item in self.items]     # 全部に反映してから判定する
+        if any(moved):
+            self.commit()
 
     def selected_indexes(self):
         return sorted(item.index for item in self.items if item.isSelected())
