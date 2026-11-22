@@ -85,7 +85,7 @@ controller_server:
     goal_checker_plugins: ["general_goal_checker"]
     # 道に沿って走る部品を 2 つ用意して、ロボットコンソールが選ぶ(controller_selector のトピック)
     #   FollowPath        … ゴールの近く(0.5 m 以内)まで向きを変えない(「着いてから回る」でも使う)
-    #   FollowPathTurning … 走り出したときから、ゴールの向きに回る(「走りながら回る」)
+    #   FollowPathTurning … ゴールの 2 m 手前から、走りながらゴールの向きに回る(「走りながら回る」)
     controller_plugins: ["FollowPath", "FollowPathTurning"]
 
     # 10 秒たっても 0.3 m 進まなければ、行き詰まったとみなす
@@ -173,7 +173,10 @@ controller_server:
         twirling_cost_power: 1
         twirling_cost_weight: 10.0
 
-    # 走りながら回る: 上の FollowPath と同じで、ゴールの向きを最初から気にする(★ の値もそろえる)
+    # 走りながら回る: 上の FollowPath と同じで、ゴールの 2 m 手前から向きを気にする(★ の値もそろえる)
+    # Nav2 が探した道の途中の点には向きが入っていない(全部 0°)ので、ゴールが MPPI の見ている範囲
+    # (prune_distance と、ローカルのコストマップの中)に入ってから回り始める。もっと遠くから回らせると、
+    # 途中の点の 0° に向こうとして、変な動きになる
     FollowPathTurning:
       plugin: "nav2_mppi_controller::MPPIController"
       motion_model: "Omni"          # 横にも動ける
@@ -193,7 +196,7 @@ controller_server:
       vx_std: 0.2
       vy_std: 0.2
       wz_std: 0.4
-      prune_distance: 1.7
+      prune_distance: 3.0           # 道をこれだけ先まで見る [m](threshold_to_consider より長く)
       transform_tolerance: 0.1
       temperature: 0.3
       gamma: 0.015
@@ -211,11 +214,11 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         threshold_to_consider: 1.4
-      GoalAngleCritic:              # ゴールまでどれだけ遠くても、ゴールの向きに近づける
+      GoalAngleCritic:              # ゴールまでこれだけの距離に来たら、ゴールの向きに近づける
         enabled: true
         cost_power: 1
         cost_weight: 3.0
-        threshold_to_consider: 100.0
+        threshold_to_consider: 2.0  # [m]。ローカルのコストマップの半分(2.5 m)より小さく
       CostCritic:
         enabled: true
         cost_power: 1
@@ -253,9 +256,9 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
-      rolling_window: true          # ロボットのまわり 3 m × 3 m だけ
-      width: 3
-      height: 3
+      rolling_window: true          # ロボットのまわり 5 m × 5 m だけ
+      width: 5
+      height: 5
       resolution: 0.05
       robot_radius: 0.35            # ★
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

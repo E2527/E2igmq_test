@@ -257,15 +257,24 @@ class TrailView(_View):
         self.map_version = None
         self.obstacles = []         # シミュレーターで置いた障害物 [(x, y, 半径)]
         self.pick_mode = None       # None / POSE_MODES のどれか / 'point'(障害物を置く)
+        self.click_mode = None      # ボタンを押さなくても、クリックだけで選ぶもの(自動操縦のタブではゴール)
         self.pick_start = None      # ドラッグを始めた地図の座標
         self.pick_now = None
         self.view = None            # 最後に描いたときの (mid_x, mid_y, scale)。クリックの位置を直すのに使う
 
     def set_pick_mode(self, mode):
+        """次のクリックで選ぶもの(1 回だけ。終わると click_mode にもどる)."""
         self.pick_mode = mode
         self.pick_start = self.pick_now = None
-        self.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
+        self.setCursor(Qt.CrossCursor if mode or self.click_mode else Qt.ArrowCursor)
         self.update()
+
+    def set_click_mode(self, mode):
+        """ボタンを押さなくても、クリックするたびに選ぶもの(None でやめる)."""
+        if mode != self.click_mode:
+            self.click_mode = mode
+            if self.pick_start is None:
+                self.set_pick_mode(self.pick_mode)      # カーソルを変える
 
     def to_map(self, pos):
         """画面の点 → 地図の座標."""
@@ -277,6 +286,8 @@ class TrailView(_View):
                 mid_y - (sx - self.lw() / 2.0) / scale)
 
     def mousePressEvent(self, event):
+        if not self.pick_mode and self.click_mode:
+            self.pick_mode = self.click_mode
         if self.pick_mode and event.button() == Qt.LeftButton:
             self.pick_start = self.pick_now = self.to_map(event.pos())
             self.update()

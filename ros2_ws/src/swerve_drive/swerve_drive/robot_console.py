@@ -489,7 +489,9 @@ class ConsoleWindow(QMainWindow):
         place_layout.addWidget(hint)
         column.addWidget(place)
 
-        note = QLabel('紫の線が自動操縦の探した道です。WASD などで手で操縦すると、自動操縦はやめます'
+        note = QLabel('<b>このタブを開いている間は、地図をクリックするだけでゴールを置けます</b>'
+                      '(ドラッグで向き。走っている途中でクリックすると、ゴールが変わります)。'
+                      '紫の線が自動操縦の探した道です。WASD などで手で操縦すると、自動操縦はやめます'
                       '(ゲームパッドで操縦している間は、そちらが優先されます)。'
                       '自動操縦は ./sim.sh nav か ./console.sh nav:=true で起動します。')
         note.setWordWrap(True)
@@ -597,7 +599,8 @@ class ConsoleWindow(QMainWindow):
             inner.addWidget(body)
             column.addWidget(group, stretch)
         tabs.addTab(drive, '操縦')
-        tabs.addTab(self.make_nav_tab(), '自動操縦')
+        self.nav_tab = self.make_nav_tab()
+        tabs.addTab(self.nav_tab, '自動操縦')
         tabs.addTab(self.robot, 'ロボット')
         tabs.addTab(self.lidar, 'LiDAR')
         tabs.addTab(self.status, '状態')
@@ -605,6 +608,9 @@ class ConsoleWindow(QMainWindow):
         tabs.addTab(self.make_graph_tab(), 'グラフ')
         self.extra_tabs(tabs)
         self.tabs = tabs
+        # 自動操縦のタブを開いている間は、地図をクリックするだけでゴールを置ける
+        tabs.currentChanged.connect(lambda _: self.trail.set_click_mode(
+            'goal' if tabs.currentWidget() is self.nav_tab else None))
 
         help_text = QLabel(
             '<b>操縦</b>  W / S 前後、A / D 左右、Q / E 回転、Shift で速く(このウィンドウを選んでいる間)<br>'

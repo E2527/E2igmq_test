@@ -39,7 +39,12 @@ def test_turning_controller_matches_the_normal_one():
                 'az_max'):
         assert keep[key] == turning[key], key
     assert keep['GoalAngleCritic']['threshold_to_consider'] < 1.0
-    assert turning['GoalAngleCritic']['threshold_to_consider'] >= 10.0
+    # 道の途中の点には向きが入っていない(0°)ので、ゴールが MPPI の見ている道の中に入ってから回る。
+    # 見ている道は prune_distance の長さで、ローカルのコストマップの外で切れる
+    reach = turning['GoalAngleCritic']['threshold_to_consider']
+    local = params(load(), 'local_costmap', 'local_costmap')
+    assert 1.0 <= reach < turning['prune_distance']
+    assert reach < min(local['width'], local['height']) / 2.0
     assert 'TwirlingCritic' not in turning['critics']     # 走りながら回るのをじゃましない
 
 

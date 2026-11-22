@@ -41,7 +41,7 @@ TURN_ON_ARRIVAL = 'arrival'     # 向きを変えずに走り、着いてから�
 TURN_TEXT = {TURN_WHILE_MOVING: '走りながら回る', TURN_ON_ARRIVAL: '着いてから回る'}
 # Nav2 の道に沿って走る部品(robot_nav の config/nav2_params.yaml の controller_plugins)
 CONTROLLER_KEEP = 'FollowPath'              # ゴールの近くまで向きを変えない
-CONTROLLER_TURNING = 'FollowPathTurning'    # 走り出したときから、ゴールの向きに回る
+CONTROLLER_TURNING = 'FollowPathTurning'    # ゴールの 2 m 手前から、走りながらゴールの向きに回る
 TURN_DONE_RAD = math.radians(3.0)           # 向きがこれ以下しか違わなければ、着いてから回らない
 
 
@@ -51,7 +51,7 @@ def goal_stages(mode, x, y, yaw, current_yaw):
 
     返すのは [(道に沿って走る部品の名前, (x, y, 向き))]。
     着いてから回る: 1. 今の向きのままゴールの位置まで走る → 2. その場でゴールの向きに回る
-    走りながら回る: 1 回だけ(走り出したときからゴールの向きに回る部品で)
+    走りながら回る: 1 回だけ(ゴールの手前から、走りながらゴールの向きに回る部品で)
     """
     if mode == TURN_ON_ARRIVAL:
         stages = [(CONTROLLER_KEEP, (x, y, current_yaw))]
