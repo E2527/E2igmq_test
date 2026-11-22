@@ -139,6 +139,7 @@ class ConsoleNode(Node):
         self.create_subscription(String, 'cmd_vel_mux/active',
                                  lambda msg: self.state.on_mux(msg.data, time.monotonic()), 10)
         self.initial_pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
+        self.create_subscription(PoseWithCovarianceStamped, 'amcl_pose', self.on_amcl, MAP_QOS)
         self.create_timer(1.0, lambda: self.state.set_nav_ready(self.nav_client.server_is_ready()))
 
     # ---- 受け取る(ROS のスレッド) ----
@@ -205,14 +206,22 @@ class ConsoleNode(Node):
                 lambda msg, d=dev_id, k=kind: self.state.on_stm(d, k, msg.data, time.monotonic()),
                 10)
 
+    def on_amcl(self, msg):
+        cov = msg.pose.covariance
+        spread_m = math.sqrt(max(0.0, (cov[0] + cov[7]) / 2.0))
+        self.state.on_amcl(spread_m, math.sqrt(max(0.0, cov[35])), time.monotonic())
+
     def on_plan(self, msg):
         # 道は地図の座標(Nav2 の global_frame)で届く
         self.state.on_plan([(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses])
 
     def update_odom_in_map(self):
         # 自分の位置を合わせる部品(AMCL など)がなければ、地図とオドメトリは同じとみなす
-        self.state.set_odom_in_map(*(self.lookup(self.map_frame, self.odom_frame)
-                                     or (0.0, 0.0, 0.0)))
+        pose = self.lookup(self.map_frame, self.odom_frame)
+        if pose is None:
+            self.state.set_odom_in_map(0.0, 0.0, 0.0)
+        else:
+            self.state.set_odom_in_map(*pose, time.monotonic())
 
     # ---- 出す(画面のスレッド) ----
 
@@ -476,15 +485,18 @@ class ConsoleWindow(QMainWindow):
         goal_layout.addWidget(cancel)
         column.addWidget(goal)
 
-        place = QGroupBox('位置を合わせる(AMCL を使っているとき)')
+        place = QGroupBox('位置を合わせる(AMCL)')
         place_layout = QVBoxLayout(place)
+        self.amcl_label = QLabel('')
+        self.amcl_label.setWordWrap(True)
+        place_layout.addWidget(self.amcl_label)
         initial = QPushButton('地図をクリックして、今いる位置を教える')
         initial.setFocusPolicy(Qt.NoFocus)
         initial.clicked.connect(lambda: self.start_pick(
             'initial', 'ロボットが今いる位置をクリックします(ドラッグすると、ロボットの向き)'))
         place_layout.addWidget(initial)
-        hint = QLabel('LiDAR の点(赤)が地図の壁と重なっていなければ、ロボットの位置がずれています。'
-                      'だいたいの位置を教えると、そこから AMCL が合わせ直します。')
+        hint = QLabel('AMCL は、LiDAR の点(赤)と地図の壁を重ねて、ずれを直します(動くたびと、'
+                      '止まっている間は 3 秒ごと)。大きくずれて直らないときは、だいたいの位置を教えます。')
         hint.setWordWrap(True)
         place_layout.addWidget(hint)
         column.addWidget(place)
@@ -511,7 +523,22 @@ class ConsoleWindow(QMainWindow):
             self.node.publish_initial_pose(x, y, yaw)
         self.setFocus()
 
+    def update_amcl(self, snap):
+        if snap.amcl_age is None or snap.amcl_age > 30.0:
+            text = 'AMCL は動いていません(./sim.sh か ./console.sh amcl:=true で起動)'
+        else:
+            spread_m, spread_rad = snap.amcl_spread
+            text = (f'最後に合わせたのは {snap.amcl_age:.0f} 秒前(ばらつき {spread_m * 100:.0f} cm、'
+                    f'{math.degrees(spread_rad):.0f}°)')
+            if snap.last_fix is not None:
+                dist, dyaw, age = snap.last_fix
+                text += (f'<br>最後に直した量: {dist * 100:.1f} cm、{math.degrees(dyaw):+.1f}°'
+                         f'({age:.0f} 秒前)')
+        if text != self.amcl_label.text():
+            self.amcl_label.setText(text)
+
     def update_nav(self, snap):
+        self.update_amcl(snap)
         key = (snap.nav_ready, snap.nav_phase, snap.nav_text,
                None if snap.nav_remaining is None else round(snap.nav_remaining, 1),
                snap.mux_source)

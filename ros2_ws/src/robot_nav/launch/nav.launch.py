@@ -10,8 +10,8 @@ Nav2(自動操縦)を起動する.
     field       … フィールドの名前(field_map の fields/)。map:=true のときに使う
     map         … true: フィールドの地図のノード(field_map_node)も起動する。
                   シミュレーションでは sim_world.launch.py が起動するので false
-    amcl        … true: AMCL で自分の位置を合わせる(LiDAR と地図を重ねる。実機では必ず true)。
-                  false: TF の map → odom はほかのもの(シミュレーションの sim_world_node)にまかせる
+    amcl        … true: AMCL で自分の位置を合わせる(LiDAR と地図を重ねる。localization.launch.py)。
+                  false: ほかで起動している AMCL か、シミュレーションの sim_world_node の map → odom を使う
     params_file … Nav2 の設定(config/nav2_params.yaml)
 
 出すもの: /cmd_vel_nav(足回りの cmd_vel_mux が /cmd_vel にまとめる)、/plan(探した道)
@@ -22,8 +22,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -43,18 +43,14 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file',
                               default_value=os.path.join(share, 'config', 'nav2_params.yaml')),
 
-        # フィールドの地図(/map と /lidar_map)
-        Node(package='field_map', executable='field_map_node', name='field_map', output='screen',
-             parameters=[{'field': LaunchConfiguration('field')}],
-             condition=IfCondition(LaunchConfiguration('map'))),
-
-        # 自分の位置を合わせる(AMCL)。地図が届いてから動き出す
-        Node(package='nav2_amcl', executable='amcl', name='amcl', output='screen',
-             parameters=[params], condition=IfCondition(LaunchConfiguration('amcl'))),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
-             name='lifecycle_manager_localization', output='screen',
-             parameters=[{'autostart': True, 'node_names': ['amcl']}],
-             condition=IfCondition(LaunchConfiguration('amcl'))),
+        # フィールドの地図と、自分の位置を合わせる(AMCL)。localization.launch.py
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(share, 'launch',
+                                                       'localization.launch.py')),
+            launch_arguments={'field': LaunchConfiguration('field'),
+                              'map': LaunchConfiguration('map'),
+                              'amcl': LaunchConfiguration('amcl'),
+                              'params_file': params}.items()),
 
         # 道を探して、道に沿って走る
         Node(package='nav2_controller', executable='controller_server',

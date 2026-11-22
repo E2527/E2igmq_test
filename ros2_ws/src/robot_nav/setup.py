@@ -27,6 +27,8 @@ setup(
         ],
     },
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'relocalize = robot_nav.relocalize:main',
+        ],
     },
 )

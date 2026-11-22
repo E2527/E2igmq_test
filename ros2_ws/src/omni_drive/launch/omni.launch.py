@@ -20,7 +20,7 @@
     field         … sim のときのフィールド(field_map の fields/ の名前。example)
     lidar         … true(sim のとき): シミュレーション用の LiDAR で /scan を出す
     nav           … true: 自動操縦(Nav2。robot_nav)も起動する(今はシミュレーション用。./sim.sh omni nav)
-    amcl          … true(nav のとき): AMCL で自分の位置を合わせる
+    amcl          … true: AMCL で、LiDAR と地図を重ねて自分の位置を直す(robot_nav)
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
 

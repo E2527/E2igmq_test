@@ -43,8 +43,9 @@ amcl:
     resample_interval: 1
     pf_err: 0.05
     pf_z: 0.99
-    recovery_alpha_fast: 0.0
-    recovery_alpha_slow: 0.0
+    # 位置を見失ったら、ばらばらの位置の候補を混ぜて探し直す(0 ならしない)
+    recovery_alpha_fast: 0.1
+    recovery_alpha_slow: 0.001
     sigma_hit: 0.2
     z_hit: 0.5
     z_max: 0.05
@@ -53,6 +54,12 @@ amcl:
     lambda_short: 0.1
     do_beamskip: false
     save_pose_rate: 0.5
+
+# 止まっている間も、定期的に AMCL に位置を直させる(robot_nav の relocalize.py)
+relocalize:
+  ros__parameters:
+    period_s: 3.0                   # 何秒ごとに直すか(0 でしない)
+    still_speed: 0.02               # これより遅ければ、止まっているとみなす [m/s・rad/s]
 
 bt_navigator:
   ros__parameters:

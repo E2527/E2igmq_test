@@ -4,6 +4,7 @@
     シミュレーションの世界(sim のとき)… フィールドの地図、シミュレーション用の LiDAR、本当の位置
     cmd_vel_mux … 手で操縦する指令(cmd_vel_teleop)と自動操縦の指令(cmd_vel_nav)をまとめて
                   /cmd_vel に出す。手で操縦する方が優先
+    自分の位置を合わせる(amcl のとき)… robot_nav の localization.launch.py(AMCL。LiDAR で地図とのずれを直す)
     自動操縦(nav のとき)… robot_nav の nav.launch.py(Nav2)
     操縦と表示 … teleop.launch.py(ロボットコンソール / シミュレーター、ゲームパッド)
 
@@ -54,9 +55,12 @@ def generate_launch_description():
         Node(package='swerve_drive', executable='cmd_vel_mux', name='cmd_vel_mux',
              output='screen'),
 
-        # 自動操縦(Nav2)。シミュレーションでは、地図のノードは上の世界が起動している
+        # 自分の位置を合わせる(AMCL)。シミュレーションでは、地図のノードは上の世界が起動している
+        _include('robot_nav', 'localization.launch.py',
+                 {'field': field, 'map': _not('sim'), 'amcl': 'true'}, IfCondition(amcl)),
+        # 自動操縦(Nav2)。地図と AMCL は上で起動する
         _include('robot_nav', 'nav.launch.py',
-                 {'field': field, 'map': _not('sim'), 'amcl': amcl}, IfCondition(nav)),
+                 {'field': field, 'map': 'false', 'amcl': 'false'}, IfCondition(nav)),
 
         # 操縦と表示(PC で)。PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する
         _include('swerve_drive', 'teleop.launch.py',

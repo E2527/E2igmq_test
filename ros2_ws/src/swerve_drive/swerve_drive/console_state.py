@@ -26,6 +26,8 @@ TRAIL_MAX = 4000        # 軌跡の点の数の上限(古い点から消える)
 SCAN_TIMEOUT_S = 1.0    # LiDAR の点がこれ以上来なければ、表示しない
 HISTORY_S = 20.0        # グラフに残す長さ [s]
 RATE_WINDOW_S = 1.0     # 通信の回数を数える長さ [s]
+FIX_MIN_M = 0.002       # map → odom がこれ以上変わったら、AMCL が位置を直したとみなす [m]
+FIX_MIN_RAD = math.radians(0.2)
 MUX_TIMEOUT_S = 1.0     # 指令のまとめ役(cmd_vel_mux)の知らせがこれ以上来なければ、分からないとみなす
 
 # 自動操縦の進み具合(nav_phase)
@@ -176,6 +178,9 @@ class Snapshot:
     nav_remaining: float = None         # ゴールまでの残りの距離 [m](分からなければ None)
     goal: tuple = None                  # 自動操縦のゴール(地図の座標。なければ None)
     plan: list = field(default_factory=list)        # 自動操縦が探した道 [(x, y)](地図の座標)
+    amcl_age: float = None              # AMCL が最後に位置を合わせてから何秒(動いていなければ None)
+    amcl_spread: tuple = None           # そのときの位置のばらつき (m, rad)(標準偏差)
+    last_fix: tuple = None              # 最後に直した量 (距離 m, 向き rad, 何秒前)。なければ None
     mux_source: str = None              # 今 /cmd_vel に通している指令('teleop' / 'nav' / ''。分からなければ None)
 
     @property
@@ -229,6 +234,9 @@ class ConsoleState:
         self._plan = []
         self._mux = None
         self._mux_time = None
+        self._amcl = None               # (時刻, (m, rad))
+        self._fix = None                # (時刻, 距離, 向き)
+        self._odom_in_map_known = False     # TF の map → odom が 1 回でも届いた
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -286,10 +294,26 @@ class ConsoleState:
             self._scan = list(points)
             self._scan_time = now
 
-    def set_odom_in_map(self, x, y, yaw):
-        """TF の map → odom(自分の位置を合わせる部品が出す)."""
+    def set_odom_in_map(self, x, y, yaw, now=None):
+        """
+        TF の map → odom(自分の位置を合わせる部品が出す).
+
+        now を渡すと(TF が届いたとき)、前に届いた値から変わっていれば「直した」と記録する。
+        """
         with self._lock:
+            ox, oy, oyaw = self._odom_in_map
+            dist = math.hypot(x - ox, y - oy)
+            dyaw = math.atan2(math.sin(yaw - oyaw), math.cos(yaw - oyaw))
+            if now is not None and self._odom_in_map_known and \
+                    (dist >= FIX_MIN_M or abs(dyaw) >= FIX_MIN_RAD):
+                self._fix = (now, dist, dyaw)
+            self._odom_in_map_known = self._odom_in_map_known or now is not None
             self._odom_in_map = (x, y, yaw)
+
+    def on_amcl(self, spread_m, spread_rad, now):
+        """AMCL が位置を合わせた(/amcl_pose)。spread は位置と向きのばらつき(標準偏差)."""
+        with self._lock:
+            self._amcl = (now, (float(spread_m), float(spread_rad)))
 
     def on_stm(self, dev_id, kind, values, now):
         """stm<ID>/command か stm<ID>/state が届いた(kind は 'command' か 'state')."""
@@ -374,6 +398,11 @@ class ConsoleState:
             snap.nav_phase, snap.nav_text, snap.nav_remaining = self._nav
             snap.goal = self._goal
             snap.plan = list(self._plan)
+            if self._amcl is not None:
+                snap.amcl_age = now - self._amcl[0]
+                snap.amcl_spread = self._amcl[1]
+            if self._fix is not None:
+                snap.last_fix = (self._fix[1], self._fix[2], now - self._fix[0])
             if self._mux_time is not None and now - self._mux_time < MUX_TIMEOUT_S:
                 snap.mux_source = self._mux
             if with_history:

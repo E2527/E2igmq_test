@@ -180,6 +180,24 @@ def test_goal_stages():
     assert len(cs.goal_stages(cs.TURN_ON_ARRIVAL, 1.0, 2.0, math.pi, -math.pi + 0.01)) == 1
 
 
+def test_amcl_fixes_are_recorded():
+    state = cs.ConsoleState()
+    snap = state.snapshot(0.0)
+    assert snap.amcl_age is None and snap.last_fix is None
+    state.set_odom_in_map(1.0, 0.0, 0.0, 0.5)       # 最初に届いたときは、直したとはみなさない
+    assert state.snapshot(1.0).last_fix is None
+    state.set_odom_in_map(0.0, 0.0, 0.0)            # TF が届いていない(now なし)
+    state.set_odom_in_map(0.0, 0.0, 0.0, 1.0)       # 変わっていない
+    assert state.snapshot(1.0).last_fix is None
+    state.set_odom_in_map(0.03, 0.04, 0.0, 2.0)     # 5 cm 直した
+    state.on_amcl(0.03, 0.02, 2.0)
+    snap = state.snapshot(5.0)
+    assert snap.last_fix[0] == pytest.approx(0.05) and snap.last_fix[2] == pytest.approx(3.0)
+    assert snap.amcl_age == pytest.approx(3.0) and snap.amcl_spread == (0.03, 0.02)
+    state.set_odom_in_map(0.0301, 0.04, 0.0, 6.0)   # 小さすぎる変化は数えない
+    assert state.snapshot(6.0).last_fix[2] == pytest.approx(4.0)
+
+
 def test_mux_source_times_out():
     state = cs.ConsoleState()
     assert state.snapshot(0.0).mux_source is None

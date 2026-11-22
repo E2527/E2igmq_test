@@ -10,7 +10,9 @@ PC 側: ロボットコンソール(操縦・速さ・状態・停止)と、ゲ�
                 swerve.launch.py / omni.launch.py が sim:=true のときに使う
 
     nav       … true: 自動操縦(robot_nav の Nav2)を、このコンピューターで起動する(実機用。
-                AMCL で位置を合わせるので、LiDAR の /scan が要る)。field … そのときのフィールドの名前
+                AMCL も起動する)。field … そのときのフィールドの名前
+    amcl      … true: 自分の位置を合わせる AMCL だけを、このコンピューターで起動する(実機用。
+                LiDAR の /scan で地図とのずれを直す。地図のノードも起動する)
 
 ロボット(Pi)では swerve.launch.py か omni.launch.py を起動しておく。PC と Pi が同じ Wi-Fi にいて
 ROS_DOMAIN_ID が同じなら、指令は Wi-Fi で Pi に届き、/odom や状態は PC に届く。
@@ -39,6 +41,7 @@ def generate_launch_description():
         DeclareLaunchArgument('rviz', default_value='false'),
         DeclareLaunchArgument('simulator', default_value='false'),
         DeclareLaunchArgument('nav', default_value='false'),
+        DeclareLaunchArgument('amcl', default_value='false'),
         DeclareLaunchArgument('field', default_value='example'),
 
         # ロボットコンソール(WASD の操縦、速さ、軌跡、状態、停止ボタン)。実機用
@@ -59,12 +62,21 @@ def generate_launch_description():
              parameters=[joy_config], remappings=[('cmd_vel', 'cmd_vel_teleop')],
              condition=IfCondition(LaunchConfiguration('joy'))),
 
-        # 自動操縦(実機で、PC で Nav2 を動かすとき)。地図のノードと AMCL も起動する
+        # 実機で、PC で地図のノードと AMCL を動かすとき(nav でも amcl でも)
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('robot_nav'), 'launch', 'localization.launch.py'])),
+            launch_arguments={'field': LaunchConfiguration('field'), 'map': 'true',
+                              'amcl': 'true'}.items(),
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('nav'), "' == 'true' or '",
+                LaunchConfiguration('amcl'), "' == 'true'"]))),
+        # 自動操縦(実機で、PC で Nav2 を動かすとき)
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('robot_nav'), 'launch', 'nav.launch.py'])),
-            launch_arguments={'field': LaunchConfiguration('field'), 'map': 'true',
-                              'amcl': 'true'}.items(),
+            launch_arguments={'field': LaunchConfiguration('field'), 'map': 'false',
+                              'amcl': 'false'}.items(),
             condition=IfCondition(LaunchConfiguration('nav'))),
 
         Node(package='rviz2', executable='rviz2', name='rviz2',

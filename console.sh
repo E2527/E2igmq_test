@@ -6,6 +6,7 @@
 #   ./console.sh joy:=false     … コンソールだけ(WASD で操縦)
 #   ./console.sh rviz:=true     … rviz2 も開く
 #   ./console.sh nav:=true field:=example   … 自動操縦(Nav2 + AMCL)も、この PC で動かす(LiDAR が要る)
+#   ./console.sh amcl:=true field:=example  … AMCL だけ動かす(LiDAR と地図を重ねて、ずれを定期的に直す)
 #
 # ロボット(Pi)では足回り(docker compose --profile robot up -d drive)を起動しておく。
 # PC と Pi が同じ Wi-Fi で、.env の ROS_DOMAIN_ID が同じなら、ロボットとつながる。
