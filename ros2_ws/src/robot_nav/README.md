@@ -24,6 +24,7 @@ LiDAR と地図を重ねて、地図とのずれを定期的に直す **AMCL**(`
 | 走りながら回る | ゴールの 2 m 手前から、走りながらゴールの向きに回る | `FollowPathTurning` |
 | 着いてから回る | 今の向きのまま横や斜めに進み、ゴールに着いてから、その場で回る | `FollowPath` を 2 回(位置 → 向き) |
 
+- **壁や障害物に近すぎるゴール**(ロボットの半径より近い)は置けません。地図のロボットとゴールのまわりの点線の円が、ロボットの大きさです。
 - 途中で **「自動操縦をやめる」** を押すか、**WASD で手で操縦する**か、**停止ボタン**を押すと、自動操縦はやめます。
 - シミュレーターの「障害物を置く」で道をふさぐと、LiDAR で見つけて、よける道を探し直します。
 - 「タイヤの滑り」を入れると、オドメトリはずれていきますが、AMCL が LiDAR と地図を見比べて位置を直すので、ゴールに着けます(`noamcl` だと直しません)。
@@ -88,9 +89,9 @@ docker compose --profile robot up -d drive
 | 設定 | 意味 |
 |---|---|
 | `robot_radius` | ロボットの半径 [m](真上から見て、中心からいちばん遠い角まで)。2 か所 |
-| `inflation_radius` | 壁からこれだけ離れた道を好む [m]。`robot_radius` より大きく。2 か所 |
+| `inflation_radius` / `cost_scaling_factor` | 壁からこれだけ離れた道を好む [m] と、その好み方。`inflation_radius` を `robot_radius` より 0.3 m 以上大きく、`cost_scaling_factor` を小さくすると、道がすき間のまん中を通って安定する(障害物のそばでうろうろするとき)。2 か所 |
 | `vx_max` / `vy_max` / `wz_max` | 自動操縦の速さの上限。足回りが出せる速さ以下に。`FollowPath` と `FollowPathTurning` の両方を同じに |
-| `xy_goal_tolerance` / `yaw_goal_tolerance` | これだけ近づいたら「着いた」 |
+| `xy_goal_tolerance` / `yaw_goal_tolerance` | これだけ近づいたら「着いた」。小さすぎると、ゴールのまわりでうろうろする |
 | `alpha1`〜`alpha5`(amcl) | オドメトリのずれの大きさ。タイヤがよく滑るなら大きくする |
 
 変えたら `colcon build` し直します(`./sim.sh` は自動でやります)。設定の書きまちがいは `test/test_params.py` で見つけられます。

@@ -54,7 +54,8 @@ def test_robot_radius_is_the_same_everywhere():
     world = params(doc, 'global_costmap', 'global_costmap')
     assert local['robot_radius'] == world['robot_radius']
     for costmap in (local, world):
-        assert costmap['inflation_layer']['inflation_radius'] > costmap['robot_radius']
+        # 壁から十分離れた道を好むように(近いと、自動操縦が障害物のそばで安定しない)
+        assert costmap['inflation_layer']['inflation_radius'] >= costmap['robot_radius'] + 0.3
         for name in costmap['plugins']:
             assert 'plugin' in costmap[name], name
 

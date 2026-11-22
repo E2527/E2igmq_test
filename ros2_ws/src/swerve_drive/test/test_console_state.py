@@ -198,6 +198,17 @@ def test_amcl_fixes_are_recorded():
     assert state.snapshot(6.0).last_fix[2] == pytest.approx(4.0)
 
 
+def test_map_clearance():
+    # 1 マス 0.1 m、10 × 10。(0.5, 0.5) 付近のマス(列 5、行 5)だけふさがっている
+    cells = bytearray(100)
+    cells[5 * 10 + 5] = 100
+    grid = cs.MapData(10, 10, 0.1, 0.0, 0.0, bytes(cells))
+    assert grid.clearance(0.55, 0.55, 1.0) == 0.0                   # ふさがっているマスの中
+    assert grid.clearance(0.55, 0.25, 1.0) == pytest.approx(0.25)    # 下に 0.25 m
+    assert grid.clearance(0.15, 0.15, 0.2) == pytest.approx(0.15)    # 地図の外(左と下)まで
+    assert grid.clearance(0.3, 0.8, 0.1) == pytest.approx(0.1)       # limit までしか調べない
+
+
 def test_mux_source_times_out():
     state = cs.ConsoleState()
     assert state.snapshot(0.0).mux_source is None

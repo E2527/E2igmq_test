@@ -2,7 +2,7 @@
 #
 # まず直すところ(★):
 #   robot_radius       … ロボットの半径(真上から見て、中心からいちばん遠い角まで)。3 か所ある
-#   inflation_radius   … 壁からこれだけ離れた道を好む(robot_radius より大きく)。2 か所
+#   inflation_radius   … 壁からこれだけ離れた道を好む(robot_radius より十分大きく)。2 か所
 #   vx_max / vy_max / wz_max … 自動操縦の速さの上限(足回りが出せる速さ以下に)
 #
 # しくみ(robot_nav の README に図あり):
@@ -104,7 +104,7 @@ controller_server:
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true
-      xy_goal_tolerance: 0.05       # [m]
+      xy_goal_tolerance: 0.1        # [m]。小さすぎると、AMCL が位置を数 cm 直すたびに、ゴールのまわりでうろうろする
       yaw_goal_tolerance: 0.1       # [rad](約 6°)
 
     # MPPI: 少しずつ違う速さで動いたときの動きを、たくさん(2000 通り)試して、いちばん良いものを選ぶ
@@ -290,8 +290,10 @@ local_costmap:
           raytrace_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.55      # ★
+        # 壁から遠いほど通りやすくする範囲と、その減り方。範囲を広く・減り方をゆるくすると、
+        # 道が障害物のすぐ横ではなく、すき間のまん中を通るようになり、自動操縦が安定する
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.8       # ★
       always_send_full_costmap: true
 
 global_costmap:
@@ -326,8 +328,10 @@ global_costmap:
           raytrace_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.55      # ★
+        # 壁から遠いほど通りやすくする範囲と、その減り方。範囲を広く・減り方をゆるくすると、
+        # 道が障害物のすぐ横ではなく、すき間のまん中を通るようになり、自動操縦が安定する
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.8       # ★
       always_send_full_costmap: true
 
 planner_server:

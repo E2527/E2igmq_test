@@ -105,6 +105,23 @@ class MapData:
         return (self.origin_x, self.origin_x + self.width * self.resolution,
                 self.origin_y, self.origin_y + self.height * self.resolution)
 
+    def clearance(self, x, y, limit):
+        """点 (x, y) から、いちばん近いふさがっているマス(と地図の外)までの距離 [m]。limit まで調べる."""
+        res = self.resolution
+        col, row = math.floor((x - self.origin_x) / res), math.floor((y - self.origin_y) / res)
+        reach = int(math.ceil(limit / res)) + 1
+        best = limit
+        for r in range(row - reach, row + reach + 1):
+            for c in range(col - reach, col + reach + 1):
+                inside = 0 <= c < self.width and 0 <= r < self.height
+                if inside and not 50 <= self.cells[r * self.width + c] <= 100:
+                    continue
+                # マスの四角の中で、いちばん近い点までの距離
+                cx = min(max(x, self.origin_x + c * res), self.origin_x + (c + 1) * res)
+                cy = min(max(y, self.origin_y + r * res), self.origin_y + (r + 1) * res)
+                best = min(best, math.hypot(cx - x, cy - y))
+        return best
+
 
 def compose(frame, x, y):
     """座標 frame = (x, y, 向き) の中の点 (x, y) を、その外側の座標に直す."""

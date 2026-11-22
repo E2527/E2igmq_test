@@ -258,6 +258,7 @@ class TrailView(_View):
         self.obstacles = []         # シミュレーターで置いた障害物 [(x, y, 半径)]
         self.pick_mode = None       # None / POSE_MODES のどれか / 'point'(障害物を置く)
         self.click_mode = None      # ボタンを押さなくても、クリックだけで選ぶもの(自動操縦のタブではゴール)
+        self.robot_radius = None    # 自動操縦のロボットの半径 [m](ロボットとゴールのまわりに点線の円)
         self.pick_start = None      # ドラッグを始めた地図の座標
         self.pick_now = None
         self.view = None            # 最後に描いたときの (mid_x, mid_y, scale)。クリックの位置を直すのに使う
@@ -422,6 +423,10 @@ class TrailView(_View):
             gx, gy, gyaw = snap.goal
             alpha = 255 if snap.navigating else 110
             start = point(gx, gy)
+            if self.robot_radius:
+                p.setPen(th.pen(th.ACCENT_2, 1.2, alpha // 2, dashed=True))
+                p.setBrush(Qt.NoBrush)
+                p.drawEllipse(start, self.robot_radius * scale, self.robot_radius * scale)
             p.setPen(th.pen(th.ACCENT_2, 2.0, alpha))
             p.setBrush(th.color(th.ACCENT_2, alpha // 4))
             p.drawEllipse(start, 10, 10)
@@ -454,11 +459,19 @@ class TrailView(_View):
             p.setPen(th.pen(th.ACCENT_2, 2.0, dashed=True))
             p.setBrush(th.color(th.ACCENT_2, 50))
             p.drawEllipse(start, 14, 14)
+            if self.robot_radius and self.pick_mode == 'goal':
+                p.setPen(th.pen(th.ACCENT_2, 1.2, 160, dashed=True))
+                p.setBrush(Qt.NoBrush)
+                p.drawEllipse(start, self.robot_radius * scale, self.robot_radius * scale)
             if self.pick_mode in self.POSE_MODES:
                 th.draw_arrow(p, start, now_pt, th.ACCENT_2, 2.4, head=12)
 
-        # ロボット(向きを指す三角)
+        # ロボット(向きを指す三角)。自動操縦の半径の円(点線)も
         here = point(x, y)
+        if self.robot_radius:
+            p.setPen(th.pen(th.ACCENT, 1.2, 150, dashed=True))
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(here, self.robot_radius * scale, self.robot_radius * scale)
         p.setPen(Qt.NoPen)
         p.setBrush(th.color(th.ACCENT, 46))
         p.drawEllipse(here, 17, 17)

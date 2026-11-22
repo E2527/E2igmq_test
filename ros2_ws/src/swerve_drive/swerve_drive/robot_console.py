@@ -78,6 +78,22 @@ MAP_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
+def nav_robot_radius(default=0.35):
+    """自動操縦の設定(robot_nav の config/nav2_params.yaml)の、ロボットの半径 [m]."""
+    try:
+        import os
+
+        from ament_index_python.packages import get_package_share_directory
+        import yaml
+        path = os.path.join(get_package_share_directory('robot_nav'), 'config',
+                            'nav2_params.yaml')
+        with open(path, encoding='utf-8') as f:
+            doc = yaml.safe_load(f)
+        return float(doc['global_costmap']['global_costmap']['ros__parameters']['robot_radius'])
+    except Exception:       # robot_nav がない(Pi など)、書き方がちがう
+        return default
+
+
 def quaternion_z_w(yaw):
     """水平面の向き [rad] → クォータニオンの (z, w)."""
     return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
@@ -129,6 +145,7 @@ class ConsoleNode(Node):
         self.create_timer(1.0, self.discover_stm)
         # 自動操縦(Nav2)。起動していなければ、ゴールを送れないだけ
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.robot_radius = nav_robot_radius()  # ゴールが障害物に近すぎないかを見るのに使う
         self.goal_handle = None
         self.goal_serial = 0            # 送ったゴールの番号(古いゴールの知らせを見分ける)
         self.dropped_serial = None      # 受け付けの返事を待っている間にやめたゴールの番号
@@ -278,6 +295,17 @@ class ConsoleNode(Node):
         if snap.stopped:
             self.state.set_nav(cs.NAV_FAILED, '停止中です。「再開」を押してから送ってください')
             return
+        # ロボットの半径より障害物に近いゴールには、ぶつからずに着けない(着く前にうろうろする)
+        if snap.grid is not None:
+            gap = snap.grid.clearance(x, y, self.robot_radius)
+            if gap < self.robot_radius:
+                text = (f'ゴールが壁や障害物に近すぎます({gap * 100:.0f} cm)。ロボットの半径 '
+                        f'{self.robot_radius * 100:.0f} cm より離して置いてください(地図の点線の円)')
+                if snap.navigating:     # 走っている途中なら、今のゴールのまま知らせるだけ
+                    self.state.set_nav(snap.nav_phase, text, snap.nav_remaining)
+                else:
+                    self.state.set_nav(cs.NAV_FAILED, text, goal=None)
+                return
         self.state.set_nav(cs.NAV_SENDING, cs.TURN_TEXT.get(turn, ''),
                            goal=(float(x), float(y), float(yaw)))
         stages = cs.goal_stages(turn, float(x), float(y), float(yaw), snap.map_pose[2])
@@ -394,6 +422,7 @@ class ConsoleWindow(QMainWindow):
         self.make_toolbar()
         self.make_body()
         self.trail.posePicked.connect(self.on_pose_picked)
+        self.trail.robot_radius = getattr(node, 'robot_radius', None)
 
         self.view_timer = QTimer(self)
         self.view_timer.timeout.connect(self.refresh)
