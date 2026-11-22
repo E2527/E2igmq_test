@@ -41,12 +41,16 @@ ROS 2 側と STM32 側で、同じ決まりを使っています(変えるとき
 
 ## 設定(`config/bridge.yaml`)
 
-| 名前 | 意味 |
-|---|---|
-| `can_interface` | `can0`(CAN)、`serial:/dev/ttyACM0`(USB シリアル)、`sim`(実機なしで試す) |
-| `device_ids` | つながっている STM32 の ID の一覧(例:`[1, 2, 3, 4]`) |
-| `rate_hz` | 指令を送る周期(100 Hz) |
-| `command_timeout_s` / `state_timeout_s` | 指令が来ないとき止める時間 / 状態が来ないとき警告する時間 |
+| 名前 | コードの初期値 | 意味 |
+|---|---|---|
+| `can_interface` | `can0` | 通信の線。`can0`(CAN)、`serial:/dev/ttyACM0`(USB シリアル)、`sim`(実機なしで試す) |
+| `device_ids` | `[1]` | つながっている STM32 の ID の一覧 |
+| `rate_hz` | `100.0` | 指令を送る周期 [Hz] |
+| `command_timeout_s` | `0.5` | `stm<ID>/command` がこれ以上来なければ、空の指令(= 停止)を送る [s] |
+| `state_timeout_s` | `0.5` | STM32 から状態がこれ以上届かなければ警告する [s] |
+| `expected_state_hz` | `100.0` | STM32 が状態を送る回数 [回/秒]。これの半分より少ないと `/diagnostics` で「注意」にする |
+
+ここにある初期値は `bridge_node.py` の `declare_parameter` の値です。起動時には `config/bridge.yaml` の値で上書きされることがあります。
 
 起動するときに `--ros-args -p 名前:=値` で上書きできます(`:` ではなく **`:=`**)。
 
