@@ -1,3 +1,7 @@
+import math
+
+import pytest
+from swerve_drive import console_state as cs
 from swerve_drive.console_state import Arrow, ConsoleState, ERROR, OK, STALE, WARN
 
 
@@ -81,3 +85,65 @@ def test_stop_follows_button_first_then_the_drive_report():
     s.set_stop(True, now=4.0)
     assert s.snapshot(4.1).stopped
     assert s.snapshot(20.0).stopped              # 足回りの知らせが途切れても、自分の指示を覚えている
+
+
+def test_map_scan_and_odom_in_map():
+    state = cs.ConsoleState()
+    snap = state.snapshot(0.0)
+    assert snap.grid is None and snap.scan == [] and snap.map_pose == (0.0, 0.0, 0.0)
+    state.on_map(4, 2, 0.5, -1.0, -0.5, [0, 100, -1, 0, 0, 0, 0, 100])
+    state.on_scan([(1.0, 0.0), (0.0, 2.0)], now=1.0)
+    state.on_odom(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, now=1.0)
+    state.set_odom_in_map(0.5, 0.5, math.pi / 2)            # odom が地図の中で 90° 回っている
+    snap = state.snapshot(1.5)
+    assert snap.grid.width == 4 and snap.grid.cells[2] == 255 and snap.grid.version == 1
+    assert snap.grid.bounds == (-1.0, 1.0, -0.5, 0.5)
+    assert snap.scan == [(1.0, 0.0), (0.0, 2.0)]
+    x, y, yaw = snap.map_pose
+    assert (round(x, 6), round(y, 6), round(yaw, 6)) == (0.5, 1.5, round(math.pi / 2, 6))
+    assert [tuple(round(v, 6) for v in p) for p in snap.map_trail()] == [(0.5, 1.5)]
+    assert state.snapshot(3.0).scan == []                   # 古くなったら出さない
+    state.on_map(1, 1, 1.0, 0.0, 0.0, b'\x00')
+    assert state.snapshot(3.0).grid.version == 2
+
+
+def test_compose():
+    assert cs.compose((1.0, 2.0, 0.0), 0.5, 0.0) == (1.5, 2.0)
+    x, y = cs.compose((0.0, 0.0, math.pi / 2), 1.0, 0.0)
+    assert abs(x) < 1e-9 and abs(y - 1.0) < 1e-9
+
+
+def test_scan_points_skip_bad_ranges_and_apply_the_mount():
+    ranges = [1.0, float('inf'), 0.01, 2.0, float('nan')]
+    points = cs.scan_points(ranges, angle_min=0.0, angle_increment=math.pi / 2, range_min=0.05,
+                            range_max=10.0, laser_pose=(0.1, 0.0, 0.0))
+    # 1 本目は前に 1 m、4 本目は 270°(右)に 2 m。LiDAR がロボットの中心より 0.1 m 前
+    assert [tuple(round(v, 6) for v in p) for p in points] == [(1.1, 0.0), (0.1, -2.0)]
+
+
+def test_stm_rows_rates_and_ages():
+    state = cs.ConsoleState()
+    for i in range(10):
+        state.on_stm(2, 'command', [0.1 * i, 1.0], now=10.0 + i * 0.1)
+    state.on_stm(2, 'state', [0.5, 0.9], now=10.8)
+    state.on_stm(1, 'state', [0.0, 0.0], now=5.0)
+    rows = state.snapshot(11.0).stm_rows
+    assert [r.dev_id for r in rows] == [1, 2]
+    one, two = rows
+    assert one.command == () and one.command_age is None and one.state_rate == 0.0
+    assert two.command[0] == pytest.approx(0.9) and two.command_rate == pytest.approx(10.0)
+    assert two.state_age == pytest.approx(0.2)
+
+
+def test_history_and_truth():
+    state = cs.ConsoleState()
+    state.on_cmd(0.5, 0.0, 0.0, now=0.0)
+    state.on_stm(1, 'command', [1.0, 2.0], now=0.0)
+    for i in range(30):
+        state.sample(i * 1.0)
+    snap = state.snapshot(29.0)
+    assert len(snap.history) == 21 and snap.history[0].t == 9.0     # 20 秒分だけ残る
+    assert state.snapshot(0.0).truth is None
+    state.set_truth(1.0, 2.0, 0.5, now=30.0)
+    assert state.snapshot(30.5).truth == (1.0, 2.0, 0.5)
+    assert state.snapshot(32.0).truth is None

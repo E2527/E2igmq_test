@@ -17,6 +17,8 @@
                     速さ、軌跡、状態、停止ボタンが 1 つのウィンドウにまとまっている(PC 用)
     joy           … true: このコンピューターにつないだゲームパッドで /cmd_vel を出す
     rviz          … true: rviz2 でオドメトリと各ホイールの矢印を表示する(PC 用)
+    field         … sim のときのフィールド(field_map の fields/ の名前。example)
+    lidar         … true(sim のとき): シミュレーション用の LiDAR で /scan を出す
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
 
@@ -73,6 +75,18 @@ def generate_launch_description():
         DeclareLaunchArgument('console', default_value='false'),
         DeclareLaunchArgument('joy', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('field', default_value='example'),
+        DeclareLaunchArgument('lidar', default_value='true'),
+        DeclareLaunchArgument('start', default_value=''),
+
+        # シミュレーションの世界(sim のとき): フィールドの地図と、シミュレーション用の LiDAR
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(
+                get_package_share_directory('field_map'), 'launch', 'sim_world.launch.py')),
+            launch_arguments={'field': LaunchConfiguration('field'),
+                              'lidar': LaunchConfiguration('lidar'),
+                              'start': LaunchConfiguration('start')}.items(),
+            condition=IfCondition(LaunchConfiguration('sim'))),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
 
@@ -87,6 +101,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(teleop),
             launch_arguments={'console': LaunchConfiguration('console'),
+                              'simulator': LaunchConfiguration('sim'),
                               'joy': LaunchConfiguration('joy'), 'rviz': 'false'}.items()),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'omni.rviz')],

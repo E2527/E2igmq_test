@@ -2,7 +2,10 @@
 ロボットコンソールの画面の部品(PyQt5).
 
     RobotView   … ロボットを上から見た図(各モジュール / ホイールの矢印、進む向き、回転)
-    TrailView   … 走った軌跡(地図)
+    TrailView   … 地図の上の、ロボットの位置・走った軌跡・LiDAR の点
+    LidarView   … LiDAR が見ている物(ロボットが中心)
+    TimePlot    … 指令と実際の値の、時間のグラフ
+    StmTable    … STM32 ごとの通信の様子(指令・状態の中身と回数)
     SpeedGauges … 前後・左右・回転の、指令の速さと実際の速さ
     KeyPad      … WASD のキー(押しているキーが光る。マウスで押してもよい)
     StatusList  … 状態の一覧(/diagnostics)
@@ -17,8 +20,9 @@
 import math
 
 from PyQt5.QtCore import pyqtSignal, QPointF, QRectF, Qt
-from PyQt5.QtGui import QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPolygonF
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtGui import (QFontMetricsF, QImage, QLinearGradient, QPainter, QPainterPath,
+                         QPolygonF, qRgb, QTransform)
+from PyQt5.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget, QTableWidgetItem, QWidget
 
 from . import console_state as cs
 from . import console_theme as th
@@ -226,27 +230,110 @@ class RobotView(_View):
 
 
 class TrailView(_View):
-    """走った軌跡。起動したときの前が、画面の上."""
+    """
+    地図の上の、ロボットの位置・走った軌跡・LiDAR の点(地図の座標。地図の +x が画面の上).
+
+    地図(/map)が届いていれば、地図全体が入るように表示する。
+    """
 
     BASE_MIN = (240, 240)
 
     GRID_STEPS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
+    FREE_RGB = (255, 255, 255)      # 地図の通れるマス
+    BLOCKED_RGB = (138, 148, 165)   # 地図のふさがっているマス
+    UNKNOWN_RGB = (228, 233, 240)   # 地図の分からないマス
+
+    posePicked = pyqtSignal(float, float, float)    # 地図をクリック(+ ドラッグで向き)した (x, y, 向き)
+    pointPicked = pyqtSignal(float, float)          # 地図をクリックした (x, y)
+
+    def __init__(self):
+        super().__init__()
+        self.show_map = True
+        self.show_scan = True
+        self.map_image = None
+        self.map_version = None
+        self.obstacles = []         # シミュレーターで置いた障害物 [(x, y, 半径)]
+        self.pick_mode = None       # None / 'pose'(ロボットを置く)/ 'point'(障害物を置く)
+        self.pick_start = None      # ドラッグを始めた地図の座標
+        self.pick_now = None
+        self.view = None            # 最後に描いたときの (mid_x, mid_y, scale)。クリックの位置を直すのに使う
+
+    def set_pick_mode(self, mode):
+        self.pick_mode = mode
+        self.pick_start = self.pick_now = None
+        self.setCursor(Qt.CrossCursor if mode else Qt.ArrowCursor)
+        self.update()
+
+    def to_map(self, pos):
+        """画面の点 → 地図の座標."""
+        if self.view is None:
+            return None
+        mid_x, mid_y, scale = self.view
+        sx, sy = pos.x() / self.k, pos.y() / self.k
+        return (mid_x - (sy - (self.lh() - 22.0) / 2.0) / scale,
+                mid_y - (sx - self.lw() / 2.0) / scale)
+
+    def mousePressEvent(self, event):
+        if self.pick_mode and event.button() == Qt.LeftButton:
+            self.pick_start = self.pick_now = self.to_map(event.pos())
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        if self.pick_start is not None:
+            self.pick_now = self.to_map(event.pos())
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if self.pick_start is None or event.button() != Qt.LeftButton:
+            return
+        (x0, y0), (x1, y1) = self.pick_start, self.to_map(event.pos())
+        mode = self.pick_mode
+        self.set_pick_mode(None)
+        if mode == 'pose':
+            # ドラッグした向きがロボットの向き。ほぼ動かしていなければ、今の向きのまま
+            yaw = math.atan2(y1 - y0, x1 - x0) if math.hypot(x1 - x0, y1 - y0) > 0.05 \
+                else self.snap.map_pose[2]
+            self.posePicked.emit(x0, y0, yaw)
+        elif mode == 'point':
+            self.pointPicked.emit(x0, y0)
+
+    def image_of(self, grid):
+        """地図を絵にする(届くたびに 1 回だけ)。画像の上の行が地図の +y の端."""
+        if grid.version != self.map_version:
+            image = QImage(grid.width, grid.height, QImage.Format_RGB32)
+            colors = {0: qRgb(*self.FREE_RGB), 255: qRgb(*self.UNKNOWN_RGB)}
+            blocked = qRgb(*self.BLOCKED_RGB)
+            for r in range(grid.height):
+                row = grid.cells[r * grid.width:(r + 1) * grid.width]
+                v = grid.height - 1 - r
+                for c, value in enumerate(row):
+                    image.setPixel(c, v, colors.get(value, blocked if 50 <= value <= 100
+                                                    else qRgb(*self.FREE_RGB)))
+            self.map_image, self.map_version = image, grid.version
+        return self.map_image
 
     def paintEvent(self, _event):
         p = self.painter()
         w, h = self.lw(), self.lh()
         snap = self.snap
-        x, y, yaw = snap.pose
-        points = snap.trail + [(x, y)]
-        xs = [q[0] for q in points] + [0.0]
-        ys = [q[1] for q in points] + [0.0]
+        x, y, yaw = snap.map_pose
+        trail = snap.map_trail()
+        points = trail + [(x, y), (0.0, 0.0)]
+        grid = snap.grid if self.show_map else None
+        if grid is not None:
+            x0, x1, y0, y1 = grid.bounds
+            points += [(x0, y0), (x1, y1)]
+        xs = [q[0] for q in points]
+        ys = [q[1] for q in points]
         mid_x, mid_y = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
-        span = max(max(xs) - min(xs), max(ys) - min(ys), 1.6) * 1.3     # 表示する広さ [m]
-        scale = (min(w, h) - 24.0) / span
+        span_x = max(max(xs) - min(xs), 1.6) * (1.08 if grid else 1.3)    # 表示する広さ [m]
+        span_y = max(max(ys) - min(ys), 1.6) * (1.08 if grid else 1.3)
+        scale = min((h - 34.0) / span_x, (w - 12.0) / span_y)
 
         def point(px, py):
             return QPointF(w / 2.0 - (py - mid_y) * scale, (h - 22.0) / 2.0 - (px - mid_x) * scale)
 
+        self.view = (mid_x, mid_y, scale)
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(0, 0, w, h - 22), 12, 12)
         p.setPen(Qt.NoPen)
@@ -255,40 +342,88 @@ class TrailView(_View):
         p.save()
         p.setClipPath(clip)
 
+        # 地図: 画像の画素 (u, v) → 地図の (x, y) → 画面
+        if grid is not None:
+            image = self.image_of(grid)
+            res = grid.resolution
+            p.save()
+            p.setRenderHint(QPainter.SmoothPixmapTransform, False)
+            p.setTransform(QTransform(
+                0.0, -res * scale, res * scale, 0.0,
+                w / 2.0 - (grid.origin_y + grid.height * res - mid_y) * scale,
+                (h - 22.0) / 2.0 - (grid.origin_x - mid_x) * scale), True)
+            p.drawImage(0, 0, image)
+            p.restore()
+
         # マス目
         cell = next((s for s in self.GRID_STEPS if s * scale >= 30.0), self.GRID_STEPS[-1])
         reach_x, reach_y = h / scale, w / scale
 
         def lines(middle, reach):
-            """画面に入る範囲の、マス目の線の番号(0 がスタート地点を通る線)."""
+            """画面に入る範囲の、マス目の線の番号(0 が地図の原点を通る線)."""
             first = math.floor((middle - reach) / cell)
             return range(first, math.ceil((middle + reach) / cell) + 1)
 
         for k in lines(mid_x, reach_x):
-            p.setPen(th.pen(th.FAINT if k == 0 else th.EDGE, 1.0))
+            p.setPen(th.pen(th.FAINT if k == 0 else th.EDGE, 1.0, 160 if grid else 255))
             p.drawLine(point(k * cell, mid_y - reach_y), point(k * cell, mid_y + reach_y))
         for k in lines(mid_y, reach_y):
-            p.setPen(th.pen(th.FAINT if k == 0 else th.EDGE, 1.0))
+            p.setPen(th.pen(th.FAINT if k == 0 else th.EDGE, 1.0, 160 if grid else 255))
             p.drawLine(point(mid_x - reach_x, k * cell), point(mid_x + reach_x, k * cell))
 
-        # スタート地点
+        # スタート地点(地図の原点)
         p.setBrush(Qt.NoBrush)
         p.setPen(th.pen(th.DIM, 1.4))
         p.drawEllipse(point(0.0, 0.0), 5, 5)
 
         # 軌跡(古いところほど薄く)
         groups = 10
-        n = len(points)
+        n = len(trail)
         for g in range(groups):
             first, last = n * g // groups, min(n - 1, n * (g + 1) // groups)
             if last <= first:
                 continue
-            path = QPainterPath(point(*points[first]))
-            for q in points[first + 1:last + 1]:
+            path = QPainterPath(point(*trail[first]))
+            for q in trail[first + 1:last + 1]:
                 path.lineTo(point(*q))
             p.setBrush(Qt.NoBrush)
             p.setPen(th.pen(th.ACCENT, 2.6, 50 + 205 * (g + 1) // groups))
             p.drawPath(path)
+
+        # シミュレーターで置いた障害物
+        for ox, oy, r in self.obstacles:
+            p.setPen(th.pen(th.WARN, 1.6))
+            p.setBrush(th.color(th.WARN, 60))
+            p.drawEllipse(point(ox, oy), r * scale, r * scale)
+
+        # シミュレーションの本当の位置(灰色の三角。オドメトリとずれると離れて見える)
+        if snap.truth is not None:
+            tx, ty, tyaw = snap.truth
+            p.save()
+            p.translate(point(tx, ty))
+            p.rotate(-math.degrees(tyaw))
+            p.setPen(th.pen(th.DIM, 1.6))
+            p.setBrush(Qt.NoBrush)
+            p.drawPolygon(QPolygonF([QPointF(0, -13), QPointF(9, 10), QPointF(0, 5),
+                                     QPointF(-9, 10)]))
+            p.restore()
+
+        # LiDAR の点(ロボットから見た位置 → 地図の座標)
+        if self.show_scan and snap.scan:
+            p.setPen(Qt.NoPen)
+            p.setBrush(th.color(th.BAD, 210))
+            for sx, sy in snap.scan:
+                mx, my = cs.compose((x, y, yaw), sx, sy)
+                p.drawEllipse(point(mx, my), 2.2, 2.2)
+
+        # 置こうとしている位置と向き(ドラッグ中)
+        if self.pick_start is not None and self.pick_now is not None:
+            start, now_pt = point(*self.pick_start), point(*self.pick_now)
+            p.setPen(th.pen(th.ACCENT_2, 2.0, dashed=True))
+            p.setBrush(th.color(th.ACCENT_2, 50))
+            p.drawEllipse(start, 14, 14)
+            if self.pick_mode == 'pose':
+                th.draw_arrow(p, start, now_pt, th.ACCENT_2, 2.4, head=12)
 
         # ロボット(向きを指す三角)
         here = point(x, y)
@@ -307,8 +442,62 @@ class TrailView(_View):
         p.drawText(QRectF(2, h - 20, w, 20), Qt.AlignLeft | Qt.AlignVCenter,
                    f'x {x:+.2f} m    y {y:+.2f} m    向き {math.degrees(yaw):+.0f}°')
         p.setPen(th.color(th.FAINT))
+        notes = ['地図あり' if snap.grid else '地図なし', f'LiDAR {len(snap.scan)} 点' if snap.scan
+                 else 'LiDAR なし', f'1 マス {cell:g} m']
         p.drawText(QRectF(0, h - 20, w - 2, 20), Qt.AlignRight | Qt.AlignVCenter,
-                   f'1 マス {cell:g} m')
+                   '    '.join(notes))
+
+
+class LidarView(_View):
+    """LiDAR が見ている物(ロボットが中心、画面の上がロボットの前)."""
+
+    BASE_MIN = (240, 240)
+    RING_STEPS = (0.25, 0.5, 1.0, 2.0, 5.0)
+
+    def paintEvent(self, _event):
+        p = self.painter()
+        w, h = self.lw(), self.lh()
+        scan = self.snap.scan
+        cx, cy = w / 2.0, (h - 22.0) / 2.0
+        reach = max([math.hypot(px, py) for px, py in scan] + [1.0]) * 1.08
+        reach = min(reach, 12.0)
+        scale = (min(w, h - 22.0) / 2.0 - 8.0) / reach
+        ring = next((s for s in self.RING_STEPS if reach / s <= 6), self.RING_STEPS[-1])
+
+        def point(px, py):
+            return QPointF(cx - py * scale, cy - px * scale)
+
+        p.setBrush(Qt.NoBrush)
+        k = 1
+        while k * ring <= reach:
+            p.setPen(th.pen(th.EDGE, 1.0))
+            p.drawEllipse(QPointF(cx, cy), k * ring * scale, k * ring * scale)
+            k += 1
+        p.setPen(th.pen(th.EDGE, 1.0))
+        p.drawLine(QPointF(cx, cy - reach * scale), QPointF(cx, cy + reach * scale))
+        p.drawLine(QPointF(cx - reach * scale, cy), QPointF(cx + reach * scale, cy))
+        if not scan:
+            p.setPen(th.color(th.DIM))
+            p.setFont(th.font(10))
+            p.drawText(QRectF(0, 0, w, h - 22), Qt.AlignCenter,
+                       'LiDAR(/scan)のデータを待っています\n(シミュレーションでは fake_lidar が出す)')
+        else:
+            p.setPen(Qt.NoPen)
+            p.setBrush(th.color(th.BAD, 220))
+            for px, py in scan:
+                p.drawEllipse(point(px, py), 2.4, 2.4)
+        # ロボット(上が前)
+        p.setPen(Qt.NoPen)
+        p.setBrush(th.color(th.ACCENT))
+        p.drawPolygon(QPolygonF([QPointF(cx, cy - 12), QPointF(cx + 8, cy + 8),
+                                 QPointF(cx, cy + 3), QPointF(cx - 8, cy + 8)]))
+        p.setFont(th.font(9))
+        p.setPen(th.color(th.DIM))
+        p.drawText(QRectF(2, h - 20, w, 20), Qt.AlignLeft | Qt.AlignVCenter,
+                   f'{len(scan)} 点    上がロボットの前')
+        p.setPen(th.color(th.FAINT))
+        p.drawText(QRectF(0, h - 20, w - 2, 20), Qt.AlignRight | Qt.AlignVCenter,
+                   f'円の間隔 {ring:g} m')
 
 
 class SpeedGauges(_View):
@@ -541,3 +730,125 @@ class StatusList(_View):
             p.drawText(QRectF(x + width - values_w, y, values_w, self.ROW_H),
                        Qt.AlignRight | Qt.AlignVCenter,
                        QFontMetricsF(values_font).elidedText(row.values, Qt.ElideRight, values_w))
+
+
+class TimePlot(_View):
+    """
+    指令(点線)と実際(実線)の値の、時間のグラフ(右端が今).
+
+    set_series(題名, 単位, [(時刻, 指令, 実際)]) で中身を渡す。値が None のところは描かない。
+    """
+
+    BASE_MIN = (260, 180)
+    WINDOW_S = 20.0
+
+    def __init__(self):
+        super().__init__()
+        self.title, self.unit, self.points = '', '', []
+
+    def set_series(self, title, unit, points):
+        self.title, self.unit, self.points = title, unit, points
+        self.update()
+
+    def paintEvent(self, _event):
+        p = self.painter()
+        w, h = self.lw(), self.lh()
+        left, top, right, bottom = 54.0, 46.0, 12.0, 26.0
+        pw, ph = w - left - right, h - top - bottom
+        values = [v for _, a, b in self.points for v in (a, b) if v is not None]
+        span = max([abs(v) for v in values] + [0.1]) * 1.15
+        t_end = self.points[-1][0] if self.points else 0.0
+
+        def point(t, v):
+            return QPointF(left + (1.0 - (t_end - t) / self.WINDOW_S) * pw,
+                           top + ph / 2.0 - v / span * ph / 2.0)
+
+        p.setFont(th.font(10, bold=True))
+        p.setPen(th.color(th.TEXT))
+        p.drawText(QRectF(left, 2, pw, 24), Qt.AlignLeft | Qt.AlignVCenter,
+                   f'{self.title}  [{self.unit}]')
+        p.setFont(th.font(8))
+        for frac in (-1.0, -0.5, 0.0, 0.5, 1.0):
+            y = top + ph / 2.0 - frac * ph / 2.0
+            p.setPen(th.pen(th.FAINT if frac == 0 else th.EDGE, 1.0))
+            p.drawLine(QPointF(left, y), QPointF(left + pw, y))
+            p.setPen(th.color(th.DIM))
+            p.drawText(QRectF(0, y - 9, left - 6, 18), Qt.AlignRight | Qt.AlignVCenter,
+                       f'{frac * span:+.2f}')
+        for sec in range(0, int(self.WINDOW_S) + 1, 5):
+            x = left + (1.0 - sec / self.WINDOW_S) * pw
+            p.setPen(th.pen(th.EDGE, 1.0))
+            p.drawLine(QPointF(x, top), QPointF(x, top + ph))
+            p.setPen(th.color(th.DIM))
+            p.drawText(QRectF(x - 30, top + ph + 4, 60, 18), Qt.AlignCenter,
+                       '今' if sec == 0 else f'-{sec} 秒')
+        if not self.points:
+            p.setPen(th.color(th.DIM))
+            p.setFont(th.font(10))
+            p.drawText(QRectF(left, top, pw, ph), Qt.AlignCenter, 'データを待っています')
+            return
+        for index, hex_color, dashed in ((1, th.TEXT, True), (2, th.ACCENT, False)):
+            path, drawing = QPainterPath(), False
+            for sample in self.points:
+                v = sample[index]
+                if v is None or t_end - sample[0] > self.WINDOW_S:
+                    drawing = False
+                    continue
+                q = point(sample[0], v)
+                if drawing:
+                    path.lineTo(q)
+                else:
+                    path.moveTo(q)
+                    drawing = True
+            p.setBrush(Qt.NoBrush)
+            p.setPen(th.pen(hex_color, 1.6 if dashed else 2.2, 200 if dashed else 255, dashed))
+            p.drawPath(path)
+        last = self.points[-1]
+        p.setFont(th.font(9))
+        for i, (label, hex_color, value) in enumerate((('指令(点線)', th.DIM, last[1]),
+                                                      ('実際(実線)', th.ACCENT, last[2]))):
+            text = f'{label} {value:+.3f}' if value is not None else f'{label} --'
+            p.setPen(th.color(hex_color))
+            p.drawText(QRectF(left + i * 170, 22, 165, 20), Qt.AlignLeft | Qt.AlignVCenter, text)
+
+
+class StmTable(QTableWidget):
+    """STM32 ごとの通信の様子(1 行が STM32 1 枚)."""
+
+    HEADERS = ('STM32', '指令 Pi → STM32', '状態 STM32 → Pi', '回/秒\n指令 / 状態', '最後に\n届いてから')
+
+    def __init__(self):
+        super().__init__(0, len(self.HEADERS))
+        self.setHorizontalHeaderLabels(self.HEADERS)
+        self.verticalHeader().setVisible(False)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setSelectionMode(QAbstractItemView.NoSelection)
+        self.setFocusPolicy(Qt.NoFocus)
+        header = self.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+    @staticmethod
+    def values_text(values):
+        return ', '.join(f'{v:+.2f}' for v in values) if values else '--'
+
+    def set_snapshot(self, snap):
+        rows = snap.stm_rows
+        if self.rowCount() != len(rows):
+            self.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            ages = [a for a in (row.command_age, row.state_age) if a is not None]
+            age = min(ages) if ages else None
+            late = row.state_age is None or row.state_age > 0.5
+            cells = (f'stm{row.dev_id}', self.values_text(row.command),
+                     self.values_text(row.state),
+                     f'{row.command_rate:.0f} / {row.state_rate:.0f}',
+                     '--' if age is None else f'{age * 1000:.0f} ms')
+            for c, text in enumerate(cells):
+                item = self.item(r, c)
+                if item is None:
+                    item = QTableWidgetItem()
+                    self.setItem(r, c, item)
+                item.setText(text)
+                item.setForeground(th.color(th.BAD if late and c in (2, 3) else th.TEXT))

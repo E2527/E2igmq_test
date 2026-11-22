@@ -20,6 +20,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 
 from .kinematics import cosine_scale, wrap_angle
+from .sim_faults import SimFaults
 
 
 class FakeModules(Node):
@@ -42,12 +43,13 @@ class FakeModules(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{dev_id}/command',
                 lambda msg, i=i: self.on_command(i, msg), 10)
+        self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.dt = 1.0 / rate_hz
         self.create_timer(self.dt, self.step)
         self.get_logger().info(f'ID {self.ids} のモジュールのふりをしています')
 
     def on_command(self, index, msg):
-        if len(msg.data) >= 2:
+        if len(msg.data) >= 2 and not self.faults.dead(self.ids[index]):
             self.targets[index] = (time.monotonic(), float(msg.data[0]), float(msg.data[1]))
 
     def step(self):
@@ -62,7 +64,9 @@ class FakeModules(Node):
             turn = wrap_angle(angle - self.angles[i])
             self.angles[i] = wrap_angle(self.angles[i] + max(-max_turn, min(max_turn, turn)))
             self.speeds[i] += gain * (speed - self.speeds[i])
-            self.pubs[i].publish(Float32MultiArray(data=[self.angles[i], self.speeds[i]]))
+            state = self.faults.state(self.ids[i], [self.angles[i], self.speeds[i]])
+            if state is not None:
+                self.pubs[i].publish(Float32MultiArray(data=state))
 
 
 def main():

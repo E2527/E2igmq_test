@@ -16,6 +16,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 from swerve_drive import firmware_sim
+from swerve_drive.sim_faults import SimFaults
 
 
 class FirmwareWheels(Node):
@@ -40,13 +41,14 @@ class FirmwareWheels(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{board}/command',
                 lambda msg, b=board: self.on_command(b, msg), 10)
+        self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.period = 1.0 / rate_hz
         self.create_timer(self.period, self.step)
         self.get_logger().info(
             f'ID {self.boards} の STM32 を、{firmware_dir} のファームウェアで動かしています')
 
     def on_command(self, board, msg):
-        if len(msg.data) >= 2:
+        if len(msg.data) >= 2 and not self.faults.dead(board):
             self.targets[board] = (time.monotonic(), [float(msg.data[0]), float(msg.data[1])])
 
     def step(self):
@@ -54,7 +56,9 @@ class FirmwareWheels(Node):
         for board, (received, target) in self.targets.items():
             running = now - received < self.timeout_s
             speeds = self.sims[board].run(target[0], target[1], running, self.period)
-            self.pubs[board].publish(Float32MultiArray(data=speeds))
+            state = self.faults.state(board, speeds)
+            if state is not None:
+                self.pubs[board].publish(Float32MultiArray(data=state))
 
     def destroy_node(self):
         for sim in self.sims.values():

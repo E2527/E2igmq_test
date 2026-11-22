@@ -16,8 +16,9 @@
 
 停止ボタンはソフトウェアの停止。**本物の非常停止スイッチ(モーターの電源を切るもの)は、必ず別に付けること。**
 
-見るだけのトピック: /cmd_vel、/odom、swerve/markers、omni/markers、/diagnostics
-(スワーブでもオムニでも、シミュレーションでも実機でも使える)
+見るだけのトピック: /cmd_vel、/odom、swerve/markers、omni/markers、/diagnostics、
+                   /map(地図)、/scan(LiDAR)、TF(map → odom、base_link → LiDAR)
+(スワーブでもオムニでも、シミュレーションでも実機でも使える。地図や LiDAR がなければ、その表示が出ないだけ)
 
     ros2 run swerve_drive robot_console
 
@@ -29,6 +30,7 @@
 """
 
 import math
+import re
 import signal
 import sys
 import threading
@@ -37,15 +39,20 @@ import traceback
 
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtWidgets import (QAction, QApplication, QGroupBox, QHBoxLayout, QLabel,
+from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QGroupBox, QHBoxLayout, QLabel,
                              QMainWindow, QPushButton, QTabWidget, QToolBar, QToolButton,
                              QVBoxLayout, QWidget)
 import rclpy
+from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
+from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool, Float32MultiArray
+from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
 from . import console_state as cs
@@ -56,6 +63,11 @@ from .teleop_keys import KEY_DIRECTIONS, twist_from_keys
 
 QT_KEYS = {Qt.Key_W: 'w', Qt.Key_A: 'a', Qt.Key_S: 's', Qt.Key_D: 'd', Qt.Key_Q: 'q',
            Qt.Key_E: 'e', Qt.Key_Shift: 'shift'}
+
+
+STM_TOPIC = re.compile(r'^/stm(\d+)/(command|state)$')
+MAP_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
+                     durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def yaw_of(orientation):
@@ -89,6 +101,18 @@ class ConsoleNode(Node):
         self.create_subscription(DiagnosticArray, '/diagnostics', self.on_diagnostics, 10)
         self.create_subscription(Bool, robot_status.STOP_TOPIC, self.on_stop,
                                  robot_status.STOP_QOS)
+        # 地図と LiDAR(なければ、その表示が出ないだけ)
+        self.map_frame = p('map_frame', 'map').value
+        self.odom_frame = p('odom_frame', 'odom').value
+        self.base_frame = p('base_frame', 'base_link').value
+        self.create_subscription(OccupancyGrid, p('map_topic', 'map').value, self.on_map, MAP_QOS)
+        self.create_subscription(LaserScan, 'scan', self.on_scan, qos_profile_sensor_data)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.create_timer(0.2, self.update_odom_in_map)
+        # 通信の様子: stm<ID>/command と stm<ID>/state を見つけしだい、見るだけの購読をする
+        self.stm_subscribed = set()
+        self.create_timer(1.0, self.discover_stm)
 
     # ---- 受け取る(ROS のスレッド) ----
 
@@ -120,6 +144,45 @@ class ConsoleNode(Node):
     def on_stop(self, msg):
         self.state.set_stop(msg.data, time.monotonic())
 
+    def on_map(self, msg):
+        info = msg.info
+        self.state.on_map(info.width, info.height, info.resolution, info.origin.position.x,
+                          info.origin.position.y, msg.data)
+
+    def lookup(self, target, source):
+        """TF で source の座標が target のどこにあるか (x, y, 向き)。分からなければ None."""
+        try:
+            t = self.tf_buffer.lookup_transform(target, source, Time(),
+                                                timeout=Duration(seconds=0.0))
+        except TransformException:
+            return None
+        tr = t.transform
+        return tr.translation.x, tr.translation.y, yaw_of(tr.rotation)
+
+    def on_scan(self, msg):
+        # LiDAR の取り付け位置(TF の base_link → LiDAR)。分からなければ、ロボットの中心で前向き
+        laser = self.lookup(self.base_frame, msg.header.frame_id) or (0.0, 0.0, 0.0)
+        points = cs.scan_points(msg.ranges, msg.angle_min, msg.angle_increment,
+                                msg.range_min, msg.range_max, laser)
+        self.state.on_scan(points, time.monotonic())
+
+    def discover_stm(self):
+        for name, _types in self.get_topic_names_and_types():
+            match = STM_TOPIC.match(name)
+            if match is None or name in self.stm_subscribed:
+                continue
+            self.stm_subscribed.add(name)
+            dev_id, kind = int(match.group(1)), match.group(2)
+            self.create_subscription(
+                Float32MultiArray, name,
+                lambda msg, d=dev_id, k=kind: self.state.on_stm(d, k, msg.data, time.monotonic()),
+                10)
+
+    def update_odom_in_map(self):
+        # 自分の位置を合わせる部品(AMCL など)がなければ、地図とオドメトリは同じとみなす
+        self.state.set_odom_in_map(*(self.lookup(self.map_frame, self.odom_frame)
+                                     or (0.0, 0.0, 0.0)))
+
     # ---- 出す(画面のスレッド) ----
 
     def publish_keys(self, keys, turbo):
@@ -143,10 +206,14 @@ class ConsoleWindow(QMainWindow):
     ウィンドウ(フィールドエディタと同じ並び)。キー入力を受け取り、30 回/秒で表示を更新する.
 
         上   … 道具バー: 停止 / 再開、状態、足回りの種類、軌跡を消す
-        中央 … 軌跡(地図)。ロボットの位置と向き、走った跡
-        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ 状態(/diagnostics)
+        中央 … 地図(/map)の上に、ロボットの位置と向き、走った跡、LiDAR の点
+        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ LiDAR / 状態 /
+               通信(STM32 ごとの指令・状態の中身と回数)/ グラフ(指令と実際の値の時間変化)
         下   … 位置・向き・速さ
     """
+
+    TITLE = 'ロボットコンソール'
+    SIDE_WIDTH = 470            # 右の欄の幅(タブが全部見える幅)
 
     def __init__(self, node):
         super().__init__()
@@ -154,8 +221,9 @@ class ConsoleWindow(QMainWindow):
         self.keys = set()           # 押しているキー('w' など。Shift は 'shift')
         self.stopped = False
         self.header_key = None      # 道具バーを作り直すかどうかの判定用
+        self.graph_keys = []        # グラフで選べるもの [(題名, 単位, 値の取り出し方)]
 
-        self.setWindowTitle('ロボットコンソール')
+        self.setWindowTitle(self.TITLE)
         self.setFocusPolicy(Qt.StrongFocus)
         self.resize(1300, 820)
         self.setMinimumSize(900, 700)
@@ -165,9 +233,14 @@ class ConsoleWindow(QMainWindow):
         self.keypad = widgets.KeyPad(f'{node.linear_speed:g} m/s ・ Shift ×{node.turbo_scale:g}')
         self.keypad.keyChanged.connect(self.on_pad_key)
         self.trail = widgets.TrailView()
+        self.lidar = widgets.LidarView()
         self.status = widgets.StatusList()
         self.status.setMinimumHeight(140)
         self.status.setMaximumHeight(16777215)          # タブの中では、高さいっぱいに使う
+        self.stm_table = widgets.StmTable()
+        self.plot = widgets.TimePlot()
+        self.graph_choice = QComboBox()
+        self.graph_choice.setFocusPolicy(Qt.NoFocus)
 
         self.make_toolbar()
         self.make_body()
@@ -203,14 +276,79 @@ class ConsoleWindow(QMainWindow):
         clear = QAction('軌跡を消す', self)
         clear.triggered.connect(self.node.state.clear_trail)
         bar.addAction(clear)
+        bar.addSeparator()
+        for text, attr in (('地図', 'show_map'), ('LiDAR の点', 'show_scan')):
+            toggle = QAction(text, self)
+            toggle.setCheckable(True)
+            toggle.setChecked(True)
+            toggle.toggled.connect(lambda on, a=attr: (setattr(self.trail, a, on),
+                                                       self.trail.update()))
+            bar.addAction(toggle)
+        self.extra_toolbar(bar)
         for button in bar.findChildren(QToolButton):
             button.setFocusPolicy(Qt.NoFocus)
+
+    def extra_toolbar(self, bar):
+        """シミュレーターなどが、道具バーに足すところ."""
+
+    def extra_tabs(self, tabs):
+        """シミュレーターなどが、右のタブを足すところ."""
+
+    def on_refresh(self, snap):
+        """シミュレーターなどが、表示を更新するところ(30 回/秒)."""
+
+    def make_graph_tab(self):
+        tab = QWidget()
+        column = QVBoxLayout(tab)
+        row = QHBoxLayout()
+        row.addWidget(QLabel('表示するもの'))
+        row.addWidget(self.graph_choice, 1)
+        column.addLayout(row)
+        column.addWidget(self.plot, 1)
+        note = QLabel('点線が指令、実線が実際の値。最近 20 秒分。'
+                      'stm<ID> は STM32 との通信の値(スワーブなら 1 が向き [rad]、2 がタイヤの速さ [rad/s])')
+        note.setWordWrap(True)
+        column.addWidget(note)
+        return tab
+
+    def update_graph_choices(self, snap):
+        keys = [('速さ: 前後', 'm/s', ('body', 0)), ('速さ: 左右', 'm/s', ('body', 1)),
+                ('速さ: 回転', 'rad/s', ('body', 2))]
+        for row in snap.stm_rows:
+            for i in (0, 1):
+                keys.append((f'stm{row.dev_id}: 値 {i + 1}', '', ('stm', row.dev_id, i)))
+        if [k[0] for k in keys] != [k[0] for k in self.graph_keys]:
+            current = self.graph_choice.currentText()
+            self.graph_keys = keys
+            self.graph_choice.blockSignals(True)
+            self.graph_choice.clear()
+            self.graph_choice.addItems([k[0] for k in keys])
+            index = self.graph_choice.findText(current)
+            self.graph_choice.setCurrentIndex(max(0, index))
+            self.graph_choice.blockSignals(False)
+
+    def update_graph(self, snap):
+        self.update_graph_choices(snap)
+        index = self.graph_choice.currentIndex()
+        if not (0 <= index < len(self.graph_keys)):
+            return
+        title, unit, key = self.graph_keys[index]
+        points = []
+        for sample in snap.history:
+            if key[0] == 'body':
+                actual = sample.actual[key[1]] if sample.actual is not None else None
+                points.append((sample.t, sample.command[key[1]], actual))
+            else:
+                command, state = sample.stm.get(key[1], ((), ()))
+                points.append((sample.t, command[key[2]] if len(command) > key[2] else None,
+                               state[key[2]] if len(state) > key[2] else None))
+        self.plot.set_series(title, unit, points)
 
     def make_body(self):
         tabs = QTabWidget()
         tabs.setFocusPolicy(Qt.NoFocus)
         tabs.tabBar().setFocusPolicy(Qt.NoFocus)
-        tabs.setMinimumWidth(400)
+        tabs.setMinimumWidth(self.SIDE_WIDTH)
         drive = QWidget()
         column = QVBoxLayout(drive)
         self.speed.setMinimumHeight(210)                # 3 本のバーが切れない高さ
@@ -222,7 +360,11 @@ class ConsoleWindow(QMainWindow):
             column.addWidget(group, stretch)
         tabs.addTab(drive, '操縦')
         tabs.addTab(self.robot, 'ロボット')
+        tabs.addTab(self.lidar, 'LiDAR')
         tabs.addTab(self.status, '状態')
+        tabs.addTab(self.stm_table, '通信')
+        tabs.addTab(self.make_graph_tab(), 'グラフ')
+        self.extra_tabs(tabs)
         self.tabs = tabs
 
         help_text = QLabel(
@@ -250,13 +392,19 @@ class ConsoleWindow(QMainWindow):
         if not rclpy.ok():
             self.close()
             return
-        snap = self.node.state.snapshot(time.monotonic())
+        now = time.monotonic()
+        self.node.state.sample(now)                     # グラフ用に記録する
+        snap = self.node.state.snapshot(now)
         self.stopped = snap.stopped
-        for view in (self.robot, self.speed, self.trail, self.status):
+        for view in (self.robot, self.speed, self.trail, self.lidar, self.status,
+                     self.stm_table):
             view.set_snapshot(snap)
+        if self.tabs.currentWidget() is self.plot.parentWidget():
+            self.update_graph(snap)
+        self.on_refresh(snap)
         self.keypad.set_keys(self.keys, self.isActiveWindow(), snap.stopped)
         self.update_header(snap)
-        x, y, yaw = snap.pose
+        x, y, yaw = snap.map_pose
         speed = f'{math.hypot(snap.actual[0], snap.actual[1]):.2f} m/s' \
             if snap.actual is not None else '--'
         self.statusBar().showMessage(
@@ -323,13 +471,13 @@ def spin(node):
         pass
 
 
-def main():
+def main(node_class=None, window_class=None):
     rclpy.init()
     app = QApplication(sys.argv[:1])
     # 画面の処理の中でエラーが起きても、アプリごと落ちないようにする(内容は表示する)
     sys.excepthook = lambda *error: traceback.print_exception(*error)
-    node = ConsoleNode()
-    window = ConsoleWindow(node)
+    node = (node_class or ConsoleNode)()
+    window = (window_class or ConsoleWindow)(node)
     signal.signal(signal.SIGINT, lambda *_: app.quit())     # ターミナルの Ctrl+C で閉じる
     thread = threading.Thread(target=spin, args=(node,), daemon=True)
     thread.start()

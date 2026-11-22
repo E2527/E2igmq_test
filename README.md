@@ -64,10 +64,11 @@ git pull origin main      # 最新にする
 
 | やりたいこと | コマンド(PC のターミナルで) |
 |---|---|
-| シミュレーション(スワーブ) | `./sim.sh` |
+| シミュレーション(スワーブ)。シミュレーターが開く | `./sim.sh` |
 | シミュレーション(オムニ) | `./sim.sh omni` |
 | STM32 のプログラムまで含めたシミュレーション | `./sim.sh fw` |
 | rviz2 も開く / ゲームパッドでも操縦 | 後ろに `rviz` / `joy` を付ける(例:`./sim.sh fw rviz`) |
+| 実機を PC から操縦する(ロボットコンソール) | `./console.sh` |
 | ギア比と寸法の設定画面 | `ros ros2 run swerve_drive drive_setup` |
 | フィールドの形を編集する画面 | `ros ros2 run field_map field_editor` |
 | コンテナ(開発環境)の中に入る | `ros` |
@@ -85,7 +86,8 @@ e2igmq_test/
 ├── README.md              … このファイル(入口)
 ├── docs/                  … 詳しい説明(セットアップ、Pi、困ったとき、用語集など)
 ├── dev.sh                 … 開発環境(コンテナ)に入る(ros)
-├── sim.sh                 … シミュレーションを起動する
+├── sim.sh                 … シミュレーションを起動する(シミュレーター)
+├── console.sh             … 実機を操縦する(ロボットコンソール)
 ├── compose.yaml           … Docker のコンテナの設定(PC 用の dev、Pi 用の drive など)
 ├── docker/                … Docker のイメージの作り方(PC 用 / Pi 用)
 ├── ros2_ws/src/           … ROS 2 のパッケージ(Python)

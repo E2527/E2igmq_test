@@ -71,8 +71,8 @@ docker compose --profile robot logs -f drive                                 # �
 PC で:
 
 ```bash
-ros ros2 launch swerve_drive teleop.launch.py              # ロボットコンソール + ゲームパッド
-ros ros2 launch swerve_drive teleop.launch.py joy:=false   # ロボットコンソールだけ(WASD)
+./console.sh               # ロボットコンソール + ゲームパッド
+./console.sh joy:=false    # ロボットコンソールだけ(WASD)
 ```
 
 詳しくは [swerve_drive の README の「実機を PC から Wi-Fi で操縦する」](../ros2_ws/src/swerve_drive/README.md#2-実機を-pc-から-wi-fi-で操縦する) を見てください。
