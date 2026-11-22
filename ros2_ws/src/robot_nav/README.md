@@ -16,6 +16,13 @@ ROS 2 の自動操縦の部品集 **Nav2** の起動ファイル(`launch/nav.lau
 2. **「地図をクリックしてゴールを置く」** を押して、地図をクリックします(ドラッグすると、着いたときの向き)。
 3. 紫の線(探した道)が出て、ロボットが走り出します。着くと「着きました」になります。
 
+**向きを変える**タイミングは、ゴールを置く前に選びます。
+
+| 選ぶもの | 動き | Nav2 の中で使う部品 |
+|---|---|---|
+| 走りながら回る | 走り出したときから、ゴールの向きに回りながら進む | `FollowPathTurning` |
+| 着いてから回る | 今の向きのまま横や斜めに進み、ゴールに着いてから、その場で回る | `FollowPath` を 2 回(位置 → 向き) |
+
 - 途中で **「自動操縦をやめる」** を押すか、**WASD で手で操縦する**か、**停止ボタン**を押すと、自動操縦はやめます。
 - シミュレーターの「障害物を置く」で道をふさぐと、LiDAR で見つけて、よける道を探し直します。
 - `./sim.sh amcl` で「タイヤの滑り」を入れると、オドメトリはずれていきますが、AMCL が LiDAR と地図を見比べて位置を直すので、ゴールに着けます(`./sim.sh nav` だと直しません)。
@@ -55,7 +62,7 @@ docker compose --profile robot up -d drive
 | AMCL | LiDAR の点と地図(`/lidar_map`。LiDAR に映る物だけ)を重ねて、自分の位置を合わせる。TF の `map → odom` を出す |
 | コストマップ | 地図(`/map`)と LiDAR で見えた物を、ロボットの半径だけ太らせて塗ったもの。壁から遠いほど通りやすい |
 | planner_server | コストマップの上で、ゴールまでの一番短い道を探す(A*)。1 秒ごとに探し直す |
-| controller_server | 道に沿って走る速さを、1 秒に 20 回計算する(MPPI。横にも動ける足回り用の設定) |
+| controller_server | 道に沿って走る速さを、1 秒に 20 回計算する(MPPI。横にも動ける足回り用の設定)。向きの変え方の違う 2 つ(`FollowPath` / `FollowPathTurning`)があり、コンソールが `controller_selector` のトピックで選ぶ |
 | behavior_server | 行き詰まったときに、その場で回る・少し下がる・待つ |
 | bt_navigator | 上の部品を順番に呼ぶ司令塔。ゴールを受け取る(`navigate_to_pose`) |
 | cmd_vel_mux | 手で操縦する指令と自動操縦の指令をまとめて `/cmd_vel` に出す(`swerve_drive` にある。足回りと一緒に起動) |
@@ -68,7 +75,7 @@ docker compose --profile robot up -d drive
 |---|---|
 | `robot_radius` | ロボットの半径 [m](真上から見て、中心からいちばん遠い角まで)。2 か所 |
 | `inflation_radius` | 壁からこれだけ離れた道を好む [m]。`robot_radius` より大きく。2 か所 |
-| `vx_max` / `vy_max` / `wz_max` | 自動操縦の速さの上限。足回りが出せる速さ以下に |
+| `vx_max` / `vy_max` / `wz_max` | 自動操縦の速さの上限。足回りが出せる速さ以下に。`FollowPath` と `FollowPathTurning` の両方を同じに |
 | `xy_goal_tolerance` / `yaw_goal_tolerance` | これだけ近づいたら「着いた」 |
 | `alpha1`〜`alpha5`(amcl) | オドメトリのずれの大きさ。タイヤがよく滑るなら大きくする |
 

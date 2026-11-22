@@ -169,6 +169,17 @@ def test_nav_goal_plan_and_finish():
     assert state.snapshot(0.0).nav_remaining is None
 
 
+def test_goal_stages():
+    # 走りながら回る: 1 回で、回る部品を使う
+    assert cs.goal_stages(cs.TURN_WHILE_MOVING, 1.0, 2.0, 1.5, 0.0) == \
+        [(cs.CONTROLLER_TURNING, (1.0, 2.0, 1.5))]
+    # 着いてから回る: 今の向きのまま走って、その場で回る
+    assert cs.goal_stages(cs.TURN_ON_ARRIVAL, 1.0, 2.0, 1.5, 0.2) == \
+        [(cs.CONTROLLER_KEEP, (1.0, 2.0, 0.2)), (cs.CONTROLLER_KEEP, (1.0, 2.0, 1.5))]
+    # 向きがほとんど同じなら、回らない(-π と π も同じ向き)
+    assert len(cs.goal_stages(cs.TURN_ON_ARRIVAL, 1.0, 2.0, math.pi, -math.pi + 0.01)) == 1
+
+
 def test_mux_source_times_out():
     state = cs.ConsoleState()
     assert state.snapshot(0.0).mux_source is None

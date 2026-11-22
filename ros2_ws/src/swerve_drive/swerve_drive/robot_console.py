@@ -48,9 +48,9 @@ from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QGroupBox, QHBoxLayout, QLabel,
-                             QMainWindow, QPushButton, QTabWidget, QToolBar, QToolButton,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QAction, QApplication, QButtonGroup, QComboBox, QGroupBox,
+                             QHBoxLayout, QLabel, QMainWindow, QPushButton, QRadioButton,
+                             QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
@@ -132,6 +132,9 @@ class ConsoleNode(Node):
         self.goal_handle = None
         self.goal_serial = 0            # 送ったゴールの番号(古いゴールの知らせを見分ける)
         self.dropped_serial = None      # 受け付けの返事を待っている間にやめたゴールの番号
+        self.next_stages = []           # 今のゴールに着いたあとに送るゴール(着いてから回るとき)
+        # Nav2 の、道に沿って走る部品を選ぶ(標準のビヘイビアツリーの ControllerSelector が読む)
+        self.controller_pub = self.create_publisher(String, 'controller_selector', MAP_QOS)
         self.create_subscription(Path, 'plan', self.on_plan, 10)
         self.create_subscription(String, 'cmd_vel_mux/active',
                                  lambda msg: self.state.on_mux(msg.data, time.monotonic()), 10)
@@ -253,19 +256,33 @@ class ConsoleNode(Node):
 
     # ---- 自動操縦(ゴールを送るのは画面のスレッド、知らせは ROS のスレッド) ----
 
-    def send_goal(self, x, y, yaw):
-        """Nav2 にゴールを送る。走っている途中なら、新しいゴールに変わる."""
+    def send_goal(self, x, y, yaw, turn=cs.TURN_WHILE_MOVING):
+        """
+        Nav2 にゴールを送る。走っている途中なら、新しいゴールに変わる.
+
+        turn … 向きをいつ変えるか(cs.TURN_WHILE_MOVING / cs.TURN_ON_ARRIVAL)
+        """
         if not self.nav_client.server_is_ready():
             self.state.set_nav(cs.NAV_FAILED, '自動操縦(Nav2)が起動していません')
             return
-        if self.state.snapshot(time.monotonic(), with_history=False).stopped:
+        snap = self.state.snapshot(time.monotonic(), with_history=False)
+        if snap.stopped:
             self.state.set_nav(cs.NAV_FAILED, '停止中です。「再開」を押してから送ってください')
             return
+        self.state.set_nav(cs.NAV_SENDING, cs.TURN_TEXT.get(turn, ''),
+                           goal=(float(x), float(y), float(yaw)))
+        stages = cs.goal_stages(turn, float(x), float(y), float(yaw), snap.map_pose[2])
+        self.send_stage(stages[0], stages[1:])
+
+    def send_stage(self, stage, rest):
+        """ゴールを 1 つ送る。rest は、着いたあとに続けて送るゴール."""
+        controller, (x, y, yaw) = stage
+        self.controller_pub.publish(String(data=controller))
         goal = NavigateToPose.Goal()
         goal.pose = self.pose_stamped(x, y, yaw)
         self.goal_serial += 1
         serial = self.goal_serial
-        self.state.set_nav(cs.NAV_SENDING, goal=(float(x), float(y), float(yaw)))
+        self.next_stages = list(rest)
         future = self.nav_client.send_goal_async(
             goal, feedback_callback=lambda fb, n=serial: self.on_feedback(n, fb))
         future.add_done_callback(lambda f, n=serial: self.on_goal_response(n, f))
@@ -280,7 +297,8 @@ class ConsoleNode(Node):
             self.state.set_nav(cs.NAV_FAILED, 'Nav2 がゴールを受け付けませんでした')
             return
         self.goal_handle = handle
-        self.state.set_nav(cs.NAV_RUNNING)
+        snap = self.state.snapshot(time.monotonic(), with_history=False)
+        self.state.set_nav(cs.NAV_RUNNING, snap.nav_text)
         handle.get_result_async().add_done_callback(lambda f: self.on_result(serial, f))
 
     def on_feedback(self, serial, feedback):
@@ -293,7 +311,11 @@ class ConsoleNode(Node):
         self.goal_handle = None
         response = future.result()
         status = response.status if response is not None else GoalStatus.STATUS_UNKNOWN
-        if status == GoalStatus.STATUS_SUCCEEDED:
+        if status == GoalStatus.STATUS_SUCCEEDED and self.next_stages:
+            # 着いてから回る: 位置に着いたので、その場でゴールの向きに回る
+            self.state.set_nav(cs.NAV_SENDING, '着きました。その場で向きを変えています')
+            self.send_stage(self.next_stages[0], self.next_stages[1:])
+        elif status == GoalStatus.STATUS_SUCCEEDED:
             self.state.set_nav(cs.NAV_SUCCEEDED)
         elif status == GoalStatus.STATUS_CANCELED:
             self.state.set_nav(cs.NAV_CANCELED)
@@ -306,6 +328,7 @@ class ConsoleNode(Node):
     def cancel_goal(self):
         """自動操縦をやめる(走っていなければ何もしない)."""
         handle = self.goal_handle
+        self.next_stages = []
         if handle is None:
             if self.state.snapshot(time.monotonic(), with_history=False).navigating:
                 self.dropped_serial = self.goal_serial  # 返事を待っている途中のゴールは捨てる
@@ -433,6 +456,20 @@ class ConsoleWindow(QMainWindow):
         self.goal_button.clicked.connect(lambda: self.start_pick(
             'goal', '地図をクリックしてゴールを置きます(ドラッグすると、着いたときの向き)'))
         goal_layout.addWidget(self.goal_button)
+        # 向きをいつ変えるか
+        turn_row = QHBoxLayout()
+        turn_row.addWidget(QLabel('向きを変える:'))
+        self.turn_group = QButtonGroup(self)
+        self.turn_buttons = {}
+        for mode in (cs.TURN_WHILE_MOVING, cs.TURN_ON_ARRIVAL):
+            button = QRadioButton(cs.TURN_TEXT[mode])
+            button.setFocusPolicy(Qt.NoFocus)
+            self.turn_group.addButton(button)
+            self.turn_buttons[mode] = button
+            turn_row.addWidget(button)
+        turn_row.addStretch(1)
+        self.turn_buttons[cs.TURN_WHILE_MOVING].setChecked(True)
+        goal_layout.addLayout(turn_row)
         cancel = QPushButton('自動操縦をやめる')
         cancel.setFocusPolicy(Qt.NoFocus)
         cancel.clicked.connect(self.node.cancel_goal)
@@ -466,7 +503,8 @@ class ConsoleWindow(QMainWindow):
 
     def on_pose_picked(self, mode, x, y, yaw):
         if mode == 'goal':
-            self.node.send_goal(x, y, yaw)
+            turn = next(m for m, b in self.turn_buttons.items() if b.isChecked())
+            self.node.send_goal(x, y, yaw, turn)
         elif mode == 'initial':
             self.node.publish_initial_pose(x, y, yaw)
         self.setFocus()
