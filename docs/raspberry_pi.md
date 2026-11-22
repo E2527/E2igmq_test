@@ -92,4 +92,6 @@ CAN を実機で使う前に、[STM32 のクロックの注意](../firmware/moto
 
 ## Pi の負荷
 
-足回り一式(swerve_drive + stm_bridge)は軽いので、Pi 400 でも余裕があります。LiDAR + Nav2 などの自動操縦を足すと重くなるので、そのときは `htop` で CPU の使用率を見ながら足していきます。
+足回り一式(swerve_drive + stm_bridge)は軽いので、Pi 400 でも余裕があります。自動操縦(Nav2)は今は PC で動かします(Pi のイメージには入れていません。[robot_nav の README](../ros2_ws/src/robot_nav/README.md))。Pi で動かすときは、`htop` で CPU の使用率を見ながら足していきます。
+
+**注意**:PC のロボットコンソールとゲームパッドは `cmd_vel_teleop` に指令を出し、Pi の `cmd_vel_mux` が `/cmd_vel` にまとめます。PC だけ新しくして Pi のイメージが古いままだと、ロボットが動きません。両方そろえて作り直してください。

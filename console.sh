@@ -5,6 +5,8 @@
 #   ./console.sh                … コンソール + ゲームパッド
 #   ./console.sh joy:=false     … コンソールだけ(WASD で操縦)
 #   ./console.sh rviz:=true     … rviz2 も開く
+#   ./console.sh nav:=true field:=example   … 自動操縦(Nav2 + AMCL)も、この PC で動かす(LiDAR が要る)
+#   ./console.sh amcl:=true field:=example  … AMCL だけ動かす(LiDAR と地図を重ねて、ずれを定期的に直す)
 #
 # ロボット(Pi)では足回り(docker compose --profile robot up -d drive)を起動しておく。
 # PC と Pi が同じ Wi-Fi で、.env の ROS_DOMAIN_ID が同じなら、ロボットとつながる。
@@ -13,5 +15,5 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-exec ./dev.sh bash -c 'cd /root/ros2_ws && colcon build --symlink-install --packages-up-to swerve_drive >/dev/null \
+exec ./dev.sh bash -c 'cd /root/ros2_ws && colcon build --symlink-install --packages-up-to swerve_drive robot_nav >/dev/null \
     && source install/setup.bash && exec ros2 launch swerve_drive teleop.launch.py "$@"' console "$@"

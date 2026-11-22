@@ -17,7 +17,7 @@
  ロボットコンソール(操縦・状態)    足回りの計算(swerve_drive / omni_drive)      モーターの速度制御
  ゲームパッド                       ↓                                           (エンコーダ + PID)
    │                               stm_bridge ── CAN / USB シリアル ─────────▶ スワーブなら
-   └── /cmd_vel(Wi-Fi)──────────▶   ↑                                       向きの制御も
+   └── 指令(Wi-Fi)──────────────▶   ↑                                       向きの制御も
                                      └──────── 実際の速さ・向き ◀─────────────┘
 ```
 
@@ -95,6 +95,7 @@ e2igmq_test/
 │   ├── omni_drive/        …   オムニホイールの足回り(スワーブの保険)
 │   ├── stm_bridge/        …   ROS 2 と STM32 をつなぐ(CAN / USB シリアル)
 │   ├── field_map/         …   フィールドの形を書いたファイルから、自動操縦用の地図を作る
+│   ├── robot_nav/         …   自動操縦(Nav2)の起動ファイルと設定
 │   └── my_pkg/ my_cpp_pkg/ …  練習用のサンプル
 ├── firmware/              … STM32 のプログラム(C)
 │   ├── stm32_can/         …   部品(通信、速度制御、スワーブの計算)と PC でのテスト
@@ -120,6 +121,7 @@ e2igmq_test/
 | [ros2_ws/src/swerve_drive/README.md](ros2_ws/src/swerve_drive/README.md) | スワーブの足回り、ロボットコンソール、設定画面、シミュレーション |
 | [ros2_ws/src/omni_drive/README.md](ros2_ws/src/omni_drive/README.md) | オムニホイールの足回り |
 | [ros2_ws/src/field_map/README.md](ros2_ws/src/field_map/README.md) | フィールドの地図(自動操縦の準備) |
+| [ros2_ws/src/robot_nav/README.md](ros2_ws/src/robot_nav/README.md) | 自動操縦(Nav2)。地図をクリックした場所まで走る |
 | [firmware/motor_node_f303k8/README.md](firmware/motor_node_f303k8/README.md) | STM32 のビルド・書き込み・ピン配置・初めて動かす手順 |
 | [firmware/stm32_can/README.md](firmware/stm32_can/README.md) | STM32 の部品の中身と、PID の調整のしかた |
 
@@ -136,4 +138,4 @@ e2igmq_test/
 | Raspberry Pi で動かす、Wi-Fi での操縦 | ⬜ まだ |
 | CAN での通信 | ⬜ まだ(先に [クロックの注意](firmware/motor_node_f303k8/README.md#can-を実機で使う前にクロックの精度) を読む) |
 | フィールドの地図(`field_map`) | ✅ 作れる。画面で編集・図をなぞれる(フィールドの形はまだ例) |
-| 自動操縦(Nav2 など) | ⬜ 必要になったら作る |
+| 自動操縦(Nav2) | 🔶 シミュレーションで試せる(`./sim.sh nav`)。実機はまだ |

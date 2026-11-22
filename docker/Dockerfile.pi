@@ -21,13 +21,16 @@ WORKDIR ${WS}
 COPY ros2_ws/src ${WS}/src
 
 # 実行時に必要な apt パッケージ(exec_depend)を一覧にしておき、runtime で入れる。
-# ROS の環境を source していない状態で実行するので、rclcpp なども一覧に含まれる
+# ROS の環境を source していない状態で実行するので、rclcpp なども一覧に含まれる。
+# SKIP_KEYS は Pi に入れないもの(Nav2 一式は大きいので、今は PC で動かす。robot_nav の README)
+ARG SKIP_KEYS="navigation2"
 RUN apt-get update \
     && (rosdep update --rosdistro ${ROS_DISTRO} || true) \
     && rosdep install --from-paths src --ignore-src --rosdistro ${ROS_DISTRO} \
-        --dependency-types exec --simulate --reinstall -y \
+        --dependency-types exec --simulate --reinstall -y --skip-keys "${SKIP_KEYS}" \
         | sed -n 's/.*apt-get install -y //p' | sort -u > /tmp/exec-deps.txt \
     && rosdep install --from-paths src --ignore-src -y --rosdistro ${ROS_DISTRO} \
+        --skip-keys "${SKIP_KEYS}" \
     && rm -rf /var/lib/apt/lists/*
 
 # Pi では src を持たないので --symlink-install は使わない

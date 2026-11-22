@@ -26,6 +26,42 @@ TRAIL_MAX = 4000        # 軌跡の点の数の上限(古い点から消える)
 SCAN_TIMEOUT_S = 1.0    # LiDAR の点がこれ以上来なければ、表示しない
 HISTORY_S = 20.0        # グラフに残す長さ [s]
 RATE_WINDOW_S = 1.0     # 通信の回数を数える長さ [s]
+FIX_MIN_M = 0.002       # map → odom がこれ以上変わったら、AMCL が位置を直したとみなす [m]
+FIX_MIN_RAD = math.radians(0.2)
+MUX_TIMEOUT_S = 1.0     # 指令のまとめ役(cmd_vel_mux)の知らせがこれ以上来なければ、分からないとみなす
+
+# 自動操縦の進み具合(nav_phase)
+NAV_IDLE, NAV_SENDING, NAV_RUNNING, NAV_CANCELING = 'idle', 'sending', 'running', 'canceling'
+NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED = 'succeeded', 'canceled', 'failed'
+NAV_TEXT = {NAV_IDLE: '待機中', NAV_SENDING: 'ゴールを送っています', NAV_RUNNING: '走っています',
+            NAV_CANCELING: 'やめています', NAV_SUCCEEDED: '着きました', NAV_CANCELED: 'やめました',
+            NAV_FAILED: '行けませんでした'}
+
+# 自動操縦で、ロボットの向きをいつ変えるか
+TURN_WHILE_MOVING = 'moving'    # 走りながら回る
+TURN_ON_ARRIVAL = 'arrival'     # 向きを変えずに走り、着いてからその場で回る
+TURN_TEXT = {TURN_WHILE_MOVING: '走りながら回る', TURN_ON_ARRIVAL: '着いてから回る'}
+# Nav2 の道に沿って走る部品(robot_nav の config/nav2_params.yaml の controller_plugins)
+CONTROLLER_KEEP = 'FollowPath'              # ゴールの近くまで向きを変えない
+CONTROLLER_TURNING = 'FollowPathTurning'    # ゴールの 2 m 手前から、走りながらゴールの向きに回る
+TURN_DONE_RAD = math.radians(3.0)           # 向きがこれ以下しか違わなければ、着いてから回らない
+
+
+def goal_stages(mode, x, y, yaw, current_yaw):
+    """
+    ゴールを、Nav2 に順番に送るゴールに分ける.
+
+    返すのは [(道に沿って走る部品の名前, (x, y, 向き))]。
+    着いてから回る: 1. 今の向きのままゴールの位置まで走る → 2. その場でゴールの向きに回る
+    走りながら回る: 1 回だけ(ゴールの手前から、走りながらゴールの向きに回る部品で)
+    """
+    if mode == TURN_ON_ARRIVAL:
+        stages = [(CONTROLLER_KEEP, (x, y, current_yaw))]
+        diff = math.atan2(math.sin(yaw - current_yaw), math.cos(yaw - current_yaw))
+        if abs(diff) > TURN_DONE_RAD:
+            stages.append((CONTROLLER_KEEP, (x, y, yaw)))
+        return stages
+    return [(CONTROLLER_TURNING, (x, y, yaw))]
 
 
 @dataclass(frozen=True)
@@ -68,6 +104,23 @@ class MapData:
         """(x_min, x_max, y_min, y_max)."""
         return (self.origin_x, self.origin_x + self.width * self.resolution,
                 self.origin_y, self.origin_y + self.height * self.resolution)
+
+    def clearance(self, x, y, limit):
+        """点 (x, y) から、いちばん近いふさがっているマス(と地図の外)までの距離 [m]。limit まで調べる."""
+        res = self.resolution
+        col, row = math.floor((x - self.origin_x) / res), math.floor((y - self.origin_y) / res)
+        reach = int(math.ceil(limit / res)) + 1
+        best = limit
+        for r in range(row - reach, row + reach + 1):
+            for c in range(col - reach, col + reach + 1):
+                inside = 0 <= c < self.width and 0 <= r < self.height
+                if inside and not 50 <= self.cells[r * self.width + c] <= 100:
+                    continue
+                # マスの四角の中で、いちばん近い点までの距離
+                cx = min(max(x, self.origin_x + c * res), self.origin_x + (c + 1) * res)
+                cy = min(max(y, self.origin_y + r * res), self.origin_y + (r + 1) * res)
+                best = min(best, math.hypot(cx - x, cy - y))
+        return best
 
 
 def compose(frame, x, y):
@@ -136,6 +189,21 @@ class Snapshot:
     stm_rows: list = field(default_factory=list)    # 通信の一覧
     history: list = field(default_factory=list)     # グラフ用の値 [Sample]
     truth: tuple = None                 # シミュレーションの本当の位置(地図の座標。なければ None)
+    nav_ready: bool = False             # 自動操縦(Nav2)が起動している
+    nav_phase: str = NAV_IDLE           # 自動操縦の進み具合(NAV_*)
+    nav_text: str = ''                  # 補足(行けなかった理由など)
+    nav_remaining: float = None         # ゴールまでの残りの距離 [m](分からなければ None)
+    goal: tuple = None                  # 自動操縦のゴール(地図の座標。なければ None)
+    plan: list = field(default_factory=list)        # 自動操縦が探した道 [(x, y)](地図の座標)
+    amcl_age: float = None              # AMCL が最後に位置を合わせてから何秒(動いていなければ None)
+    amcl_spread: tuple = None           # そのときの位置のばらつき (m, rad)(標準偏差)
+    last_fix: tuple = None              # 最後に直した量 (距離 m, 向き rad, 何秒前)。なければ None
+    mux_source: str = None              # 今 /cmd_vel に通している指令('teleop' / 'nav' / ''。分からなければ None)
+
+    @property
+    def navigating(self):
+        """自動操縦の途中(ゴールを送ってから、終わるまで)."""
+        return self.nav_phase in (NAV_SENDING, NAV_RUNNING, NAV_CANCELING)
 
     @property
     def map_pose(self):
@@ -177,6 +245,15 @@ class ConsoleState:
         self._history = deque()
         self._truth = None
         self._truth_time = None
+        self._nav_ready = False
+        self._nav = (NAV_IDLE, '', None)        # (進み具合, 補足, 残りの距離)
+        self._goal = None
+        self._plan = []
+        self._mux = None
+        self._mux_time = None
+        self._amcl = None               # (時刻, (m, rad))
+        self._fix = None                # (時刻, 距離, 向き)
+        self._odom_in_map_known = False     # TF の map → odom が 1 回でも届いた
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -234,10 +311,26 @@ class ConsoleState:
             self._scan = list(points)
             self._scan_time = now
 
-    def set_odom_in_map(self, x, y, yaw):
-        """TF の map → odom(自分の位置を合わせる部品が出す)."""
+    def set_odom_in_map(self, x, y, yaw, now=None):
+        """
+        TF の map → odom(自分の位置を合わせる部品が出す).
+
+        now を渡すと(TF が届いたとき)、前に届いた値から変わっていれば「直した」と記録する。
+        """
         with self._lock:
+            ox, oy, oyaw = self._odom_in_map
+            dist = math.hypot(x - ox, y - oy)
+            dyaw = math.atan2(math.sin(yaw - oyaw), math.cos(yaw - oyaw))
+            if now is not None and self._odom_in_map_known and \
+                    (dist >= FIX_MIN_M or abs(dyaw) >= FIX_MIN_RAD):
+                self._fix = (now, dist, dyaw)
+            self._odom_in_map_known = self._odom_in_map_known or now is not None
             self._odom_in_map = (x, y, yaw)
+
+    def on_amcl(self, spread_m, spread_rad, now):
+        """AMCL が位置を合わせた(/amcl_pose)。spread は位置と向きのばらつき(標準偏差)."""
+        with self._lock:
+            self._amcl = (now, (float(spread_m), float(spread_rad)))
 
     def on_stm(self, dev_id, kind, values, now):
         """stm<ID>/command か stm<ID>/state が届いた(kind は 'command' か 'state')."""
@@ -254,6 +347,37 @@ class ConsoleState:
         with self._lock:
             self._truth = (x, y, yaw)
             self._truth_time = now
+
+    def set_nav_ready(self, ready):
+        with self._lock:
+            self._nav_ready = bool(ready)
+
+    def set_nav(self, phase, text='', remaining=None, goal=False):
+        """自動操縦の進み具合。goal を渡すと、ゴールも変える(None で消す)."""
+        with self._lock:
+            self._nav = (phase, text, remaining)
+            if goal is not False:
+                self._goal = goal
+            if phase in (NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED):
+                self._plan = []                 # 終わったら、道の表示を消す
+
+    def on_nav_feedback(self, remaining):
+        """走っている途中の知らせ(ゴールまでの残りの距離 [m])."""
+        with self._lock:
+            if self._nav[0] == NAV_RUNNING:
+                self._nav = (NAV_RUNNING, self._nav[1], float(remaining))
+
+    def on_plan(self, points):
+        """自動操縦が探した道(/plan。地図の座標の [(x, y)])."""
+        with self._lock:
+            if self._nav[0] in (NAV_SENDING, NAV_RUNNING):
+                self._plan = [(float(x), float(y)) for x, y in points]
+
+    def on_mux(self, source, now):
+        """cmd_vel_mux が今通している指令('teleop' / 'nav' / '')."""
+        with self._lock:
+            self._mux = source
+            self._mux_time = now
 
     def sample(self, now):
         """グラフ用に、今の値を 1 つ記録する(画面が定期的に呼ぶ)."""
@@ -287,6 +411,17 @@ class ConsoleState:
             if self._truth_time is not None and now - self._truth_time < SCAN_TIMEOUT_S:
                 snap.truth = self._truth
             snap.stm_rows = self._stm_rows(now)
+            snap.nav_ready = self._nav_ready
+            snap.nav_phase, snap.nav_text, snap.nav_remaining = self._nav
+            snap.goal = self._goal
+            snap.plan = list(self._plan)
+            if self._amcl is not None:
+                snap.amcl_age = now - self._amcl[0]
+                snap.amcl_spread = self._amcl[1]
+            if self._fix is not None:
+                snap.last_fix = (self._fix[1], self._fix[2], now - self._fix[0])
+            if self._mux_time is not None and now - self._mux_time < MUX_TIMEOUT_S:
+                snap.mux_source = self._mux
             if with_history:
                 snap.history = list(self._history)
             snap.stopped = self._stopped(now)

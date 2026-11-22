@@ -168,5 +168,4 @@ ros ros2 run field_map make_map example -o /root/ros2_ws/maps/example   # exampl
 
 ## これから
 
-- 自動操縦(Nav2)を足すときに、この `/map` を AMCL(LiDAR で自分の位置を合わせる)と経路計画に使います。
-- 赤・青のフィールドで開始位置を切り替える設定は、そのときに足します。
+- 自動操縦(Nav2)は [robot_nav](../robot_nav/README.md) で、`/map` を経路計画に、`/lidar_map` を AMCL(LiDAR で自分の位置を合わせる)に使います。

@@ -14,6 +14,8 @@
     /sim/start_poses  … (std_msgs/String の JSON)フィールドのファイルの start_poses(赤・青のスタート位置など)
 
 自分の位置を合わせる部品(AMCL)を使うときは、map → odom は AMCL が出すので、publish_map_to_odom:=false にする。
+そのときは代わりに、置き直した位置を /initialpose(geometry_msgs/PoseWithCovarianceStamped)で AMCL に知らせる
+(AMCL が起動したときも、起動の途中で取りこぼさないように、少し間をあけて何回か知らせる)。
 """
 
 import json
@@ -21,7 +23,7 @@ import math
 import os
 import random
 
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -55,6 +57,8 @@ class SimWorld(Node):
         self.poses, self.poses_stamp = {}, None
         self.last_odom_time = None
         self.sent_map_from_odom = None
+        self.initial_subs = 0       # /initialpose を受け取るノード(AMCL)の数
+        self.initial_due = []       # /initialpose を出す時刻 [s]
 
         self.tf = StaticTransformBroadcaster(self)
         self.truth_pub = self.create_publisher(PoseStamped, '/sim/truth', 10)
@@ -71,6 +75,9 @@ class SimWorld(Node):
                 self.get_logger().warn(f'スタート位置 {self.start!r} が {self.path} にありません')
         self.create_timer(0.05, self.publish_truth)
         self.create_timer(2.0, self.load_start_poses)
+        if not self.publish_tf:
+            self.initial_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+            self.create_timer(0.5, self.send_initial_pose)
 
     def load_start_poses(self):
         """フィールドのファイルが変わっていたら、スタート位置を読み直して出す."""
@@ -122,6 +129,33 @@ class SimWorld(Node):
         self.get_logger().info(f'ロボットを置き直しました: x {target[0]:+.2f} m、y {target[1]:+.2f} m、'
                                f'向き {math.degrees(target[2]):+.0f}°')
         self.send_map_to_odom()
+        if not self.publish_tf:     # AMCL にも知らせる(すぐと、取りこぼし用に 1 秒後)
+            self.initial_due += [self.seconds(), self.seconds() + 1.0]
+
+    def seconds(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def send_initial_pose(self):
+        """AMCL に、本当の位置を最初の位置として知らせる(publish_map_to_odom:=false のとき)."""
+        now = self.seconds()
+        subs = self.initial_pub.get_subscription_count()
+        if subs > self.initial_subs:            # AMCL が起動した
+            self.initial_due += [now + 1.0, now + 3.0, now + 6.0]
+        self.initial_subs = subs
+        truth = self.tracker.truth
+        if truth is None or not any(t <= now for t in self.initial_due):
+            return
+        self.initial_due = [t for t in self.initial_due if t > now]
+        msg = PoseWithCovarianceStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'map'
+        msg.pose.pose.position.x, msg.pose.pose.position.y = truth[0], truth[1]
+        msg.pose.pose.orientation.z = math.sin(truth[2] / 2)
+        msg.pose.pose.orientation.w = math.cos(truth[2] / 2)
+        # ばらつき: 位置 5 cm、向き 3°くらい(本当の位置なので小さく)
+        msg.pose.covariance[0] = msg.pose.covariance[7] = 0.05 ** 2
+        msg.pose.covariance[35] = math.radians(3.0) ** 2
+        self.initial_pub.publish(msg)
 
     def send_map_to_odom(self):
         if not self.publish_tf:
