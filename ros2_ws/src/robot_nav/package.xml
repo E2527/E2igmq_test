@@ -7,7 +7,7 @@
   <maintainer email="e2527@matsue-ct.ac.jp">E2527</maintainer>
   <license>TODO: License declaration</license>
 
-  <!-- Nav2 一式。Pi のイメージには入れない(docker/Dockerfile.pi の --skip-keys) -->
+  <!-- Nav2 一式。Pi のイメージには入れない(docker/Dockerfile.pi の SKIP_KEYS) -->
   <exec_depend>navigation2</exec_depend>
   <exec_depend>field_map</exec_depend>
   <exec_depend>launch_ros</exec_depend>
