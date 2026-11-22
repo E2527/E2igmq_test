@@ -81,14 +81,13 @@ class SimulatorWindow(rc.ConsoleWindow):
     """ロボットコンソールの画面 + 「シミュレーション」のタブ."""
 
     TITLE = 'シミュレーター'
-    SIDE_WIDTH = 540            # 「シミュレーション」のタブの分だけ広くする
+    SIDE_WIDTH = 590            # 「シミュレーション」のタブの分だけ広くする
 
     def __init__(self, node):
         self.obstacles = []
         self.fault_boxes = {}       # (ID, 'dead' / 'nan') → チェックボックス
         self.pose_buttons = {}      # スタート位置の名前 → ボタン
         super().__init__(node)
-        self.trail.posePicked.connect(self.on_pose_picked)
         self.trail.pointPicked.connect(self.on_point_picked)
         self.send_faults()          # 起動したときは故障なし(前に残っていた設定を消す)
         self.node.publish_obstacles([])
@@ -112,7 +111,8 @@ class SimulatorWindow(rc.ConsoleWindow):
         place = QGroupBox('ロボットを置く')
         place_layout = QVBoxLayout(place)
         pick = QPushButton('地図をクリックして置く(ドラッグで向き)')
-        pick.clicked.connect(lambda: self.start_pick('pose'))
+        pick.clicked.connect(lambda: self.start_pick(
+            'pose', '地図をクリックして置きます(ドラッグすると向き)'))
         place_layout.addWidget(pick)
         self.pose_row = QHBoxLayout()
         origin = QPushButton('原点 (0, 0)')
@@ -129,7 +129,7 @@ class SimulatorWindow(rc.ConsoleWindow):
         obs_layout.addRow('半径', self.obstacle_radius)
         buttons = QHBoxLayout()
         add = QPushButton('地図をクリックして置く')
-        add.clicked.connect(lambda: self.start_pick('point'))
+        add.clicked.connect(lambda: self.start_pick('point', '地図をクリックして障害物を置きます'))
         clear = QPushButton('全部消す')
         clear.clicked.connect(self.clear_obstacles)
         buttons.addWidget(add)
@@ -183,15 +183,12 @@ class SimulatorWindow(rc.ConsoleWindow):
 
     # ---- ロボットを置く・障害物 ----
 
-    def start_pick(self, mode):
-        self.trail.set_pick_mode(mode)
-        hint = '地図をクリックして置きます(ドラッグすると向き)' if mode == 'pose' \
-            else '地図をクリックして障害物を置きます'
-        self.statusBar().showMessage(hint, 5000)
-
-    def on_pose_picked(self, x, y, yaw):
-        self.node.teleport(x, y, yaw)
-        self.after_teleport()
+    def on_pose_picked(self, mode, x, y, yaw):
+        if mode == 'pose':
+            self.node.teleport(x, y, yaw)
+            self.after_teleport()
+        else:
+            super().on_pose_picked(mode, x, y, yaw)
 
     def after_teleport(self):
         self.node.state.clear_trail()       # 前の場所からの軌跡は残さない

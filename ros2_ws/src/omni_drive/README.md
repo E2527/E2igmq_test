@@ -10,7 +10,7 @@
 ## 全体の流れ
 
 ```
- WASD / ゲームパッド / Nav2 ─▶ /cmd_vel ─▶ omni_node ─▶ stm1/command [モーター1, モーター2] ─▶ stm_bridge ─▶ STM32 (ID 1)
+ WASD / ゲームパッド / Nav2 ─▶ cmd_vel_mux ─▶ /cmd_vel ─▶ omni_node ─▶ stm1/command [モーター1, モーター2] ─▶ stm_bridge ─▶ STM32 (ID 1)
                                 (vx, vy, ω)    │        stm2/command [モーター1, モーター2] ─▶            ─▶ STM32 (ID 2)
                                                │                                [rad/s]
               /odom、TF(odom → base_link) ◀──┴── stm1/state、stm2/state [実際の速さ 2 個]

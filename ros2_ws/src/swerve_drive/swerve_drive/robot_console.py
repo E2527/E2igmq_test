@@ -9,15 +9,20 @@
     ├ x +0.00 m  y +0.00 m  向き +0°  速さ 0.00 m/s ─────────────────┤
     (フィールドエディタ・設定画面と同じ、道具バー + 中央の図 + 右の欄 の並び)
 
-    操縦 … W / S 前後、A / D 左右、Q / E 回転、Shift で速く。押している間だけ /cmd_vel を出す。
+    操縦 … W / S 前後、A / D 左右、Q / E 回転、Shift で速く。押している間だけ cmd_vel_teleop を出す
+           (足回りの cmd_vel_mux が、自動操縦より優先して /cmd_vel にまとめる)。
            ほかのウィンドウに移ると、押していないことにして止まる
     停止 … 停止ボタン、Esc、スペースキー。/drive_stop に true を出し、足回りは /cmd_vel を無視して止まる。
-           「再開」を押すまで止まったまま
+           「再開」を押すまで止まったまま。自動操縦の途中なら、自動操縦もやめる
+    自動操縦 … 「自動操縦」タブで地図をクリックすると、Nav2 にゴールを送る(navigate_to_pose)。
+           探した道(/plan)を地図に表示する。手で操縦するキーを押すと、自動操縦をやめる
 
 停止ボタンはソフトウェアの停止。**本物の非常停止スイッチ(モーターの電源を切るもの)は、必ず別に付けること。**
 
 見るだけのトピック: /cmd_vel、/odom、swerve/markers、omni/markers、/diagnostics、
-                   /map(地図)、/scan(LiDAR)、TF(map → odom、base_link → LiDAR)
+                   /map(地図)、/scan(LiDAR)、TF(map → odom、base_link → LiDAR)、
+                   /plan(自動操縦の道)、cmd_vel_mux/active(どの指令を通しているか)
+出すもの: cmd_vel_teleop、/drive_stop、/initialpose(「位置を合わせる」)、navigate_to_pose のゴール
 (スワーブでもオムニでも、シミュレーションでも実機でも使える。地図や LiDAR がなければ、その表示が出ないだけ)
 
     ros2 run swerve_drive robot_console
@@ -37,21 +42,24 @@ import threading
 import time
 import traceback
 
+from action_msgs.msg import GoalStatus
 from diagnostic_msgs.msg import DiagnosticArray
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import OccupancyGrid, Odometry
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QGroupBox, QHBoxLayout, QLabel,
                              QMainWindow, QPushButton, QTabWidget, QToolBar, QToolButton,
                              QVBoxLayout, QWidget)
 import rclpy
+from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Bool, Float32MultiArray
+from std_msgs.msg import Bool, Float32MultiArray, String
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import MarkerArray
 
@@ -68,6 +76,11 @@ QT_KEYS = {Qt.Key_W: 'w', Qt.Key_A: 'a', Qt.Key_S: 's', Qt.Key_D: 'd', Qt.Key_Q:
 STM_TOPIC = re.compile(r'^/stm(\d+)/(command|state)$')
 MAP_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                      durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+
+def quaternion_z_w(yaw):
+    """水平面の向き [rad] → クォータニオンの (z, w)."""
+    return math.sin(yaw / 2.0), math.cos(yaw / 2.0)
 
 
 def yaw_of(orientation):
@@ -90,7 +103,8 @@ class ConsoleNode(Node):
         self.state = cs.ConsoleState()
         self.was_moving = False
 
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        # 手で操縦する指令。足回りの cmd_vel_mux が、自動操縦(cmd_vel_nav)より優先して /cmd_vel に出す
+        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel_teleop', 10)
         self.stop_pub = self.create_publisher(Bool, robot_status.STOP_TOPIC,
                                               robot_status.STOP_QOS)
         self.create_subscription(Twist, 'cmd_vel', self.on_cmd_vel, 10)
@@ -113,6 +127,16 @@ class ConsoleNode(Node):
         # 通信の様子: stm<ID>/command と stm<ID>/state を見つけしだい、見るだけの購読をする
         self.stm_subscribed = set()
         self.create_timer(1.0, self.discover_stm)
+        # 自動操縦(Nav2)。起動していなければ、ゴールを送れないだけ
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.goal_handle = None
+        self.goal_serial = 0            # 送ったゴールの番号(古いゴールの知らせを見分ける)
+        self.dropped_serial = None      # 受け付けの返事を待っている間にやめたゴールの番号
+        self.create_subscription(Path, 'plan', self.on_plan, 10)
+        self.create_subscription(String, 'cmd_vel_mux/active',
+                                 lambda msg: self.state.on_mux(msg.data, time.monotonic()), 10)
+        self.initial_pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
+        self.create_timer(1.0, lambda: self.state.set_nav_ready(self.nav_client.server_is_ready()))
 
     # ---- 受け取る(ROS のスレッド) ----
 
@@ -178,6 +202,10 @@ class ConsoleNode(Node):
                 lambda msg, d=dev_id, k=kind: self.state.on_stm(d, k, msg.data, time.monotonic()),
                 10)
 
+    def on_plan(self, msg):
+        # 道は地図の座標(Nav2 の global_frame)で届く
+        self.state.on_plan([(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses])
+
     def update_odom_in_map(self):
         # 自分の位置を合わせる部品(AMCL など)がなければ、地図とオドメトリは同じとみなす
         self.state.set_odom_in_map(*(self.lookup(self.map_frame, self.odom_frame)
@@ -186,10 +214,13 @@ class ConsoleNode(Node):
     # ---- 出す(画面のスレッド) ----
 
     def publish_keys(self, keys, turbo):
-        """押しているキーから /cmd_vel を出す。離したときは 1 回だけ 0 を出して止める."""
+        """押しているキーから cmd_vel_teleop を出す。離したときは 1 回だけ 0 を出して止める."""
         twist = twist_from_keys(keys, self.linear_speed, self.angular_speed, turbo,
                                 self.turbo_scale)
         moving = any(v != 0.0 for v in twist)
+        if moving and not self.was_moving and \
+                self.state.snapshot(time.monotonic(), with_history=False).navigating:
+            self.cancel_goal()          # 手で動かし始めたら、自動操縦はやめる
         if moving or self.was_moving:
             msg = Twist()
             msg.linear.x, msg.linear.y, msg.angular.z = twist
@@ -199,6 +230,90 @@ class ConsoleNode(Node):
     def publish_stop(self, stop):
         self.state.set_stop(stop, time.monotonic())
         self.stop_pub.publish(Bool(data=stop))
+        if stop:
+            self.cancel_goal()
+
+    def pose_stamped(self, x, y, yaw):
+        msg = NavigateToPose.Goal().pose
+        msg.header.frame_id = self.map_frame
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x, msg.pose.position.y = float(x), float(y)
+        msg.pose.orientation.z, msg.pose.orientation.w = quaternion_z_w(yaw)
+        return msg
+
+    def publish_initial_pose(self, x, y, yaw):
+        """AMCL に「ロボットは今ここにいる」と知らせる(コンソールの「位置を合わせる」)."""
+        msg = PoseWithCovarianceStamped()
+        stamped = self.pose_stamped(x, y, yaw)
+        msg.header, msg.pose.pose = stamped.header, stamped.pose
+        # ばらつき: 位置 25 cm、向き 15°くらい(クリックで決めるので大きめ)
+        msg.pose.covariance[0] = msg.pose.covariance[7] = 0.25 ** 2
+        msg.pose.covariance[35] = math.radians(15.0) ** 2
+        self.initial_pub.publish(msg)
+
+    # ---- 自動操縦(ゴールを送るのは画面のスレッド、知らせは ROS のスレッド) ----
+
+    def send_goal(self, x, y, yaw):
+        """Nav2 にゴールを送る。走っている途中なら、新しいゴールに変わる."""
+        if not self.nav_client.server_is_ready():
+            self.state.set_nav(cs.NAV_FAILED, '自動操縦(Nav2)が起動していません')
+            return
+        if self.state.snapshot(time.monotonic(), with_history=False).stopped:
+            self.state.set_nav(cs.NAV_FAILED, '停止中です。「再開」を押してから送ってください')
+            return
+        goal = NavigateToPose.Goal()
+        goal.pose = self.pose_stamped(x, y, yaw)
+        self.goal_serial += 1
+        serial = self.goal_serial
+        self.state.set_nav(cs.NAV_SENDING, goal=(float(x), float(y), float(yaw)))
+        future = self.nav_client.send_goal_async(
+            goal, feedback_callback=lambda fb, n=serial: self.on_feedback(n, fb))
+        future.add_done_callback(lambda f, n=serial: self.on_goal_response(n, f))
+
+    def on_goal_response(self, serial, future):
+        handle = future.result()
+        if serial != self.goal_serial:          # もっと新しいゴールを送ったか、やめたあと
+            if serial == self.dropped_serial and handle is not None and handle.accepted:
+                handle.cancel_goal_async()      # やめたゴールが受け付けられていたら、やめさせる
+            return
+        if handle is None or not handle.accepted:
+            self.state.set_nav(cs.NAV_FAILED, 'Nav2 がゴールを受け付けませんでした')
+            return
+        self.goal_handle = handle
+        self.state.set_nav(cs.NAV_RUNNING)
+        handle.get_result_async().add_done_callback(lambda f: self.on_result(serial, f))
+
+    def on_feedback(self, serial, feedback):
+        if serial == self.goal_serial:
+            self.state.on_nav_feedback(feedback.feedback.distance_remaining)
+
+    def on_result(self, serial, future):
+        if serial != self.goal_serial:
+            return
+        self.goal_handle = None
+        response = future.result()
+        status = response.status if response is not None else GoalStatus.STATUS_UNKNOWN
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.state.set_nav(cs.NAV_SUCCEEDED)
+        elif status == GoalStatus.STATUS_CANCELED:
+            self.state.set_nav(cs.NAV_CANCELED)
+        else:
+            result = response.result if response is not None else None
+            code = getattr(result, 'error_code', 0)
+            text = getattr(result, 'error_msg', '') or (f'エラーの番号 {code}' if code else '')
+            self.state.set_nav(cs.NAV_FAILED, text or '道が見つからないか、行き詰まりました')
+
+    def cancel_goal(self):
+        """自動操縦をやめる(走っていなければ何もしない)."""
+        handle = self.goal_handle
+        if handle is None:
+            if self.state.snapshot(time.monotonic(), with_history=False).navigating:
+                self.dropped_serial = self.goal_serial  # 返事を待っている途中のゴールは捨てる
+                self.goal_serial += 1
+                self.state.set_nav(cs.NAV_CANCELED)
+            return
+        self.state.set_nav(cs.NAV_CANCELING)
+        handle.cancel_goal_async()
 
 
 class ConsoleWindow(QMainWindow):
@@ -207,8 +322,9 @@ class ConsoleWindow(QMainWindow):
 
         上   … 道具バー: 停止 / 再開、状態、足回りの種類、軌跡を消す
         中央 … 地図(/map)の上に、ロボットの位置と向き、走った跡、LiDAR の点
-        右   … タブ: 操縦(速さ + WASD)/ ロボット(各モジュールの向き)/ LiDAR / 状態 /
-               通信(STM32 ごとの指令・状態の中身と回数)/ グラフ(指令と実際の値の時間変化)
+        右   … タブ: 操縦(速さ + WASD)/ 自動操縦(ゴールを置く)/ ロボット(各モジュールの向き)/
+               LiDAR / 状態 / 通信(STM32 ごとの指令・状態の中身と回数)/
+               グラフ(指令と実際の値の時間変化)
         下   … 位置・向き・速さ
     """
 
@@ -241,9 +357,11 @@ class ConsoleWindow(QMainWindow):
         self.plot = widgets.TimePlot()
         self.graph_choice = QComboBox()
         self.graph_choice.setFocusPolicy(Qt.NoFocus)
+        self.nav_key = None         # 自動操縦のタブを書き直すかどうかの判定用
 
         self.make_toolbar()
         self.make_body()
+        self.trail.posePicked.connect(self.on_pose_picked)
 
         self.view_timer = QTimer(self)
         self.view_timer.timeout.connect(self.refresh)
@@ -296,6 +414,88 @@ class ConsoleWindow(QMainWindow):
 
     def on_refresh(self, snap):
         """シミュレーターなどが、表示を更新するところ(30 回/秒)."""
+
+    def make_nav_tab(self):
+        tab = QWidget()
+        column = QVBoxLayout(tab)
+        self.nav_label = QLabel('')
+        self.nav_label.setWordWrap(True)
+        self.nav_label.setStyleSheet('font-weight: bold;')
+        column.addWidget(self.nav_label)
+        self.nav_detail = QLabel('')
+        self.nav_detail.setWordWrap(True)
+        column.addWidget(self.nav_detail)
+
+        goal = QGroupBox('ゴールに向かう')
+        goal_layout = QVBoxLayout(goal)
+        self.goal_button = QPushButton('地図をクリックしてゴールを置く(ドラッグで向き)')
+        self.goal_button.setFocusPolicy(Qt.NoFocus)
+        self.goal_button.clicked.connect(lambda: self.start_pick(
+            'goal', '地図をクリックしてゴールを置きます(ドラッグすると、着いたときの向き)'))
+        goal_layout.addWidget(self.goal_button)
+        cancel = QPushButton('自動操縦をやめる')
+        cancel.setFocusPolicy(Qt.NoFocus)
+        cancel.clicked.connect(self.node.cancel_goal)
+        goal_layout.addWidget(cancel)
+        column.addWidget(goal)
+
+        place = QGroupBox('位置を合わせる(AMCL を使っているとき)')
+        place_layout = QVBoxLayout(place)
+        initial = QPushButton('地図をクリックして、今いる位置を教える')
+        initial.setFocusPolicy(Qt.NoFocus)
+        initial.clicked.connect(lambda: self.start_pick(
+            'initial', 'ロボットが今いる位置をクリックします(ドラッグすると、ロボットの向き)'))
+        place_layout.addWidget(initial)
+        hint = QLabel('LiDAR の点(赤)が地図の壁と重なっていなければ、ロボットの位置がずれています。'
+                      'だいたいの位置を教えると、そこから AMCL が合わせ直します。')
+        hint.setWordWrap(True)
+        place_layout.addWidget(hint)
+        column.addWidget(place)
+
+        note = QLabel('紫の線が自動操縦の探した道です。WASD などで手で操縦すると、自動操縦はやめます'
+                      '(ゲームパッドで操縦している間は、そちらが優先されます)。'
+                      '自動操縦は ./sim.sh nav か ./console.sh nav:=true で起動します。')
+        note.setWordWrap(True)
+        column.addWidget(note)
+        column.addStretch(1)
+        return tab
+
+    def start_pick(self, mode, hint):
+        self.trail.set_pick_mode(mode)
+        self.statusBar().showMessage(hint, 5000)
+
+    def on_pose_picked(self, mode, x, y, yaw):
+        if mode == 'goal':
+            self.node.send_goal(x, y, yaw)
+        elif mode == 'initial':
+            self.node.publish_initial_pose(x, y, yaw)
+        self.setFocus()
+
+    def update_nav(self, snap):
+        key = (snap.nav_ready, snap.nav_phase, snap.nav_text,
+               None if snap.nav_remaining is None else round(snap.nav_remaining, 1),
+               snap.mux_source)
+        if key == self.nav_key:         # 変わったときだけ書き直す
+            return
+        self.nav_key = key
+        colors = {cs.NAV_SUCCEEDED: th.GOOD, cs.NAV_FAILED: th.BAD, cs.NAV_RUNNING: th.ACCENT_2}
+        if not snap.nav_ready and not snap.navigating:
+            text, color = '自動操縦(Nav2)が起動していません', th.DIM
+        else:
+            text, color = cs.NAV_TEXT[snap.nav_phase], colors.get(snap.nav_phase, th.TEXT)
+            if snap.nav_phase == cs.NAV_RUNNING and snap.nav_remaining is not None:
+                text += f'(残り {snap.nav_remaining:.1f} m)'
+        self.nav_label.setText(text)
+        self.nav_label.setStyleSheet(f'font-weight: bold; color: {color};')
+        sources = {'teleop': '手で操縦', 'nav': '自動操縦', '': 'どれも来ていない'}
+        lines = [snap.nav_text] if snap.nav_text else []
+        if snap.mux_source is None:
+            source = '分からない(cmd_vel_mux が動いていない)'
+        else:
+            source = sources.get(snap.mux_source, snap.mux_source)
+        lines.append(f'足回りに通している指令: {source}')
+        self.nav_detail.setText('\n'.join(lines))
+        self.goal_button.setEnabled(snap.nav_ready)
 
     def make_graph_tab(self):
         tab = QWidget()
@@ -359,6 +559,7 @@ class ConsoleWindow(QMainWindow):
             inner.addWidget(body)
             column.addWidget(group, stretch)
         tabs.addTab(drive, '操縦')
+        tabs.addTab(self.make_nav_tab(), '自動操縦')
         tabs.addTab(self.robot, 'ロボット')
         tabs.addTab(self.lidar, 'LiDAR')
         tabs.addTab(self.status, '状態')
@@ -401,6 +602,7 @@ class ConsoleWindow(QMainWindow):
             view.set_snapshot(snap)
         if self.tabs.currentWidget() is self.plot.parentWidget():
             self.update_graph(snap)
+        self.update_nav(snap)
         self.on_refresh(snap)
         self.keypad.set_keys(self.keys, self.isActiveWindow(), snap.stopped)
         self.update_header(snap)

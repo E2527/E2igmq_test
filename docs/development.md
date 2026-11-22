@@ -68,7 +68,7 @@ ros2 pkg create --build-type ament_python パッケージ名 --dependencies rclp
 ```
 
 - コマンド(ノード)を足したら、`setup.py` の `entry_points` に書き、`colcon build` をし直します。
-- 足回りに速度を送りたいときは、**`/cmd_vel` を publish する**だけです(キーボード・ゲームパッド・自動操縦と同じ入口)。足回りのコードを変える必要はありません。
+- 足回りに速度を送りたいときは、手で操縦するものなら **`cmd_vel_teleop`**、自動で動かすものなら **`cmd_vel_nav`** に `geometry_msgs/Twist` を publish するだけです。`cmd_vel_mux` が手で操縦する方を優先して `/cmd_vel` にまとめます。足回りのコードを変える必要はありません。
 - 状態を知らせたいときは `/diagnostics` に出すと、ロボットコンソールに表示されます(`swerve_drive/robot_status.py` が例)。
 - `apt` のパッケージが新しく必要なら、`package.xml` に書いて `docker compose build dev` をし直します(Pi 用は `docker/Dockerfile.pi` も確認)。
 

@@ -7,15 +7,16 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 ## 全体の流れ
 
 ```
- ゲームパッド ─ joy ─ teleop_twist_joy ─┐
- キーボード(WASD)─ robot_console ───────┼─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
- Nav2(自動操縦、これから)────────────┘    (vx, vy, ω)      │          [向き, タイヤの速さ]   (CAN / USB シリアル)
+ ゲームパッド ─ joy ─ teleop_twist_joy ─┐ cmd_vel_teleop
+ キーボード(WASD)─ robot_console ───────┼──────────────▶ cmd_vel_mux ─▶ /cmd_vel ─▶ swerve_node ─▶ stm1〜4/command ─▶ stm_bridge ─▶ STM32 × 4
+ 自動操縦(Nav2。robot_nav)─── cmd_vel_nav ──────────────▶   (手が優先)  (vx, vy, ω)    │       [向き, タイヤの速さ]   (CAN / USB シリアル)
                                                             │
                          /odom、TF(odom → base_link) ◀─────┴─── stm1〜4/state ◀───────────────────────────┘
                          /swerve/markers(コンソールや rviz2 の矢印)   [今の向き, 今のタイヤの速さ]
 ```
 
-- **操縦のしかたを変えても、`swerve_node` はそのまま**です。`/cmd_vel` を出すものを、ゲームパッド・キーボード・Nav2 のどれにするかだけです。
+- **操縦のしかたを変えても、`swerve_node` はそのまま**です。`swerve_node` は `/cmd_vel` を受け取るだけです。
+- 手で操縦する指令(ゲームパッド・キーボード)は `cmd_vel_teleop`、自動操縦は `cmd_vel_nav` に出し、**`cmd_vel_mux` が 1 つを選んで `/cmd_vel` に出します**。手で操縦している間は、自動操縦の指令を捨てます(手を離して 0.5 秒たつと、自動操縦にもどる)。`cmd_vel_mux` は足回りの起動ファイルが一緒に起動します。
 - **STM32 が向きをどう測るか(ロータリーエンコーダ、ステッピングモーターなど)を変えても、`swerve_node` はそのまま**です。STM32 が下の「約束」を守れば動きます。
 
 ## STM32 との約束(トピック)
@@ -52,6 +53,8 @@ STM32 から返ってくる実際の向きと速さから、ロボットがど�
 | `config/swerve.rviz` | rviz2 の表示設定(上から見た図) |
 | `launch/swerve.launch.py` | ロボット側(足回り一式)を起動する。`sim:=true` で実機なしでも |
 | `launch/teleop.launch.py` | PC 側(ロボットコンソール + ゲームパッド)を起動する |
+| `launch/drive_common.launch.py` | スワーブとオムニで共通の部分(シミュレーションの世界、`cmd_vel_mux`、自動操縦、teleop) |
+| `swerve_drive/cmd_vel_mux.py` / `cmd_mux.py` | 手で操縦する指令と自動操縦の指令をまとめて `/cmd_vel` に出す(手が優先。計算は `cmd_mux.py`、`test/test_cmd_mux.py`) |
 | `test/test_kinematics.py` | 計算のテスト(`colcon test` で実行される) |
 
 ## 使い方
@@ -119,6 +122,8 @@ ros2 launch swerve_drive swerve.launch.py sim:=true console:=true
 
 **地図と LiDAR**:`./sim.sh` では、フィールドの地図(`field_map` の `fields/example.yaml`)と、地図から計算するシミュレーション用の LiDAR(`fake_lidar`)も起動します。ほかのフィールドにするときは `ros2 launch swerve_drive swerve.launch.py sim:=true console:=true field:=my_field`。実機では、地図のノードと本物の LiDAR が出す `/map` と `/scan` をそのまま表示します(なければ、その表示が出ないだけです)。自分の位置を合わせる部品(AMCL)が `map → odom` の TF を出すと、地図の上の位置もそれに合わせて表示します。
 
+**自動操縦**:`./sim.sh nav` で Nav2 も起動すると、「自動操縦」タブで地図をクリックした場所まで、道を探して走ります。詳しくは [robot_nav の README](../robot_nav/README.md)。
+
 **操縦**:このウィンドウを選んだまま、キーを押している間だけ動きます。
 
 | キー | 動き |
@@ -181,7 +186,7 @@ swerve_node(本物)─ [向き, 速さ] ─▶ ファームウェアの計算(�
 > **STM32 には、スワーブ用のファームウェア(`make APP=swerve NODE_ID=1〜4`)を書き込みます**(`firmware/motor_node_f303k8/README.md` の「スワーブのモジュール」)。モーター 2 個の速度制御用(`APP` なし)を書き込んだ基板に対して `drive` / `swerve.launch.py` を起動しないでください。`[向き, タイヤの速さ]` の「向き」が、モーター 1 の目標速度として使われてしまいます。
 
 ```
-【PC】コンソール(WASD)/ ゲームパッド ── /cmd_vel、停止 ──(Wi-Fi)──▶【Pi】drive(swerve_node + stm_bridge)─▶ STM32 × 4
+【PC】コンソール(WASD)/ ゲームパッド ── cmd_vel_teleop、停止 ──(Wi-Fi)──▶【Pi】drive(cmd_vel_mux + swerve_node + stm_bridge)─▶ STM32 × 4
 【PC】コンソール ◀───────── /odom、矢印、状態(/diagnostics)──(Wi-Fi)──── 【Pi】
 ```
 
@@ -286,5 +291,5 @@ STM32 のギア比・エンコーダのカウント数・モーターの上限�
 ## これからやること
 
 - **STM32 側**:差動ミキシングと向きの制御は `firmware/motor_node_f303k8`(`APP=swerve`)にあります。絶対角度センサーを付けたら、`app_swerve.c` の `update_module_angle()` を書き換えます。
-- **自動操縦**:Nav2 の出す `/cmd_vel` に切り替えます。ゲームパッドと Nav2 を切り替えるには `twist_mux` を使います。
+- **自動操縦**:`robot_nav`(Nav2)で、シミュレーションでは試せます。実機で試す・Pi で動かすのはこれから。
 - **オドメトリの精度**:タイヤが滑るとずれるので、IMU を足して robot_localization で合成します(そのときは `publish_tf: false`)。

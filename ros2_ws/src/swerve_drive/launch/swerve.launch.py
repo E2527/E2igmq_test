@@ -22,11 +22,14 @@
     rviz          … true: rviz2 でオドメトリと各モジュールの向きを表示する(PC 用)
     field         … sim のときのフィールド(field_map の fields/ の名前。example)
     lidar         … true(sim のとき): シミュレーション用の LiDAR で /scan を出す
+    nav           … true: 自動操縦(Nav2。robot_nav)も起動する(今はシミュレーション用。./sim.sh nav)
+    amcl          … true(nav のとき): AMCL で自分の位置を合わせる(false ならシミュレーションの本当の位置を使う)
     can_interface … stm_bridge の通信の線(can0 / serial:/dev/ttyACM0)。
                     指定しなければ環境変数 STM_INTERFACE、それもなければ bridge.yaml の値
 
-/cmd_vel を出すものは何でもよい(ゲームパッド、キーボード、Nav2)。自動操縦にするときも、
-このファイルはそのままで、Nav2 が /cmd_vel を出すようにすればよい。
+足回りの /cmd_vel は cmd_vel_mux が出す。手で操縦する指令(ロボットコンソール・ゲームパッド)は
+cmd_vel_teleop、自動操縦(Nav2)は cmd_vel_nav に出し、手で操縦する方が優先される
+(共通の部分は drive_common.launch.py)。
 """
 
 import os
@@ -39,6 +42,9 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
+
+# drive_common.launch.py にそのまま渡す引数
+COMMON_ARGS = ('sim', 'console', 'joy', 'field', 'lidar', 'start', 'nav', 'amcl')
 
 
 def _modules(context):
@@ -69,7 +75,6 @@ def _modules(context):
 def generate_launch_description():
     share = get_package_share_directory('swerve_drive')
     swerve_config = os.path.join(share, 'config', 'swerve.yaml')
-    joy = LaunchConfiguration('joy')
     rviz = LaunchConfiguration('rviz')
 
     return LaunchDescription([
@@ -81,15 +86,9 @@ def generate_launch_description():
         DeclareLaunchArgument('field', default_value='example'),
         DeclareLaunchArgument('lidar', default_value='true'),
         DeclareLaunchArgument('start', default_value=''),
+        DeclareLaunchArgument('nav', default_value='false'),
+        DeclareLaunchArgument('amcl', default_value='false'),
 
-        # シミュレーションの世界(sim のとき): フィールドの地図と、シミュレーション用の LiDAR
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(os.path.join(
-                get_package_share_directory('field_map'), 'launch', 'sim_world.launch.py')),
-            launch_arguments={'field': LaunchConfiguration('field'),
-                              'lidar': LaunchConfiguration('lidar'),
-                              'start': LaunchConfiguration('start')}.items(),
-            condition=IfCondition(LaunchConfiguration('sim'))),
         DeclareLaunchArgument(
             'can_interface', default_value=EnvironmentVariable('STM_INTERFACE', default_value='')),
 
@@ -100,12 +99,12 @@ def generate_launch_description():
         # 実機のふり / 実機とつなぐ
         OpaqueFunction(function=_modules),
 
-        # 操縦と表示(PC で)。PC から Wi-Fi で操縦するときは、PC で teleop.launch.py を起動する
+        # 共通の部分: シミュレーションの世界(sim)、指令のまとめ役(cmd_vel_mux)、
+        # 自動操縦(nav)、操縦と表示(teleop.launch.py)
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'teleop.launch.py')),
-            launch_arguments={'console': LaunchConfiguration('console'),
-                              'simulator': LaunchConfiguration('sim'), 'joy': joy,
-                              'rviz': 'false'}.items()),
+            PythonLaunchDescriptionSource(os.path.join(
+                get_package_share_directory('swerve_drive'), 'launch', 'drive_common.launch.py')),
+            launch_arguments={name: LaunchConfiguration(name) for name in COMMON_ARGS}.items()),
         Node(package='rviz2', executable='rviz2', name='rviz2',
              arguments=['-d', os.path.join(share, 'config', 'swerve.rviz')],
              condition=IfCondition(rviz)),

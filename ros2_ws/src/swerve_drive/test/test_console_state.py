@@ -147,3 +147,31 @@ def test_history_and_truth():
     state.set_truth(1.0, 2.0, 0.5, now=30.0)
     assert state.snapshot(30.5).truth == (1.0, 2.0, 0.5)
     assert state.snapshot(32.0).truth is None
+
+
+def test_nav_goal_plan_and_finish():
+    state = cs.ConsoleState()
+    snap = state.snapshot(0.0)
+    assert snap.nav_phase == cs.NAV_IDLE and not snap.navigating and snap.goal is None
+    state.on_plan([(0.0, 0.0), (1.0, 0.0)])         # 自動操縦していないときの道は表示しない
+    assert state.snapshot(0.0).plan == []
+    state.set_nav(cs.NAV_SENDING, goal=(1.0, 2.0, 0.5))
+    state.on_plan([(0.0, 0.0), (1.0, 2.0)])
+    state.set_nav(cs.NAV_RUNNING)
+    state.on_nav_feedback(1.5)
+    snap = state.snapshot(0.0)
+    assert snap.navigating and snap.goal == (1.0, 2.0, 0.5)
+    assert snap.plan == [(0.0, 0.0), (1.0, 2.0)] and snap.nav_remaining == 1.5
+    state.set_nav(cs.NAV_SUCCEEDED)
+    snap = state.snapshot(0.0)
+    assert not snap.navigating and snap.plan == [] and snap.goal == (1.0, 2.0, 0.5)
+    state.on_nav_feedback(0.3)                      # 終わったあとの知らせは無視する
+    assert state.snapshot(0.0).nav_remaining is None
+
+
+def test_mux_source_times_out():
+    state = cs.ConsoleState()
+    assert state.snapshot(0.0).mux_source is None
+    state.on_mux('nav', 1.0)
+    assert state.snapshot(1.5).mux_source == 'nav'
+    assert state.snapshot(3.0).mux_source is None

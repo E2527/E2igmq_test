@@ -26,6 +26,14 @@ TRAIL_MAX = 4000        # 軌跡の点の数の上限(古い点から消える)
 SCAN_TIMEOUT_S = 1.0    # LiDAR の点がこれ以上来なければ、表示しない
 HISTORY_S = 20.0        # グラフに残す長さ [s]
 RATE_WINDOW_S = 1.0     # 通信の回数を数える長さ [s]
+MUX_TIMEOUT_S = 1.0     # 指令のまとめ役(cmd_vel_mux)の知らせがこれ以上来なければ、分からないとみなす
+
+# 自動操縦の進み具合(nav_phase)
+NAV_IDLE, NAV_SENDING, NAV_RUNNING, NAV_CANCELING = 'idle', 'sending', 'running', 'canceling'
+NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED = 'succeeded', 'canceled', 'failed'
+NAV_TEXT = {NAV_IDLE: '待機中', NAV_SENDING: 'ゴールを送っています', NAV_RUNNING: '走っています',
+            NAV_CANCELING: 'やめています', NAV_SUCCEEDED: '着きました', NAV_CANCELED: 'やめました',
+            NAV_FAILED: '行けませんでした'}
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,18 @@ class Snapshot:
     stm_rows: list = field(default_factory=list)    # 通信の一覧
     history: list = field(default_factory=list)     # グラフ用の値 [Sample]
     truth: tuple = None                 # シミュレーションの本当の位置(地図の座標。なければ None)
+    nav_ready: bool = False             # 自動操縦(Nav2)が起動している
+    nav_phase: str = NAV_IDLE           # 自動操縦の進み具合(NAV_*)
+    nav_text: str = ''                  # 補足(行けなかった理由など)
+    nav_remaining: float = None         # ゴールまでの残りの距離 [m](分からなければ None)
+    goal: tuple = None                  # 自動操縦のゴール(地図の座標。なければ None)
+    plan: list = field(default_factory=list)        # 自動操縦が探した道 [(x, y)](地図の座標)
+    mux_source: str = None              # 今 /cmd_vel に通している指令('teleop' / 'nav' / ''。分からなければ None)
+
+    @property
+    def navigating(self):
+        """自動操縦の途中(ゴールを送ってから、終わるまで)."""
+        return self.nav_phase in (NAV_SENDING, NAV_RUNNING, NAV_CANCELING)
 
     @property
     def map_pose(self):
@@ -177,6 +197,12 @@ class ConsoleState:
         self._history = deque()
         self._truth = None
         self._truth_time = None
+        self._nav_ready = False
+        self._nav = (NAV_IDLE, '', None)        # (進み具合, 補足, 残りの距離)
+        self._goal = None
+        self._plan = []
+        self._mux = None
+        self._mux_time = None
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -255,6 +281,37 @@ class ConsoleState:
             self._truth = (x, y, yaw)
             self._truth_time = now
 
+    def set_nav_ready(self, ready):
+        with self._lock:
+            self._nav_ready = bool(ready)
+
+    def set_nav(self, phase, text='', remaining=None, goal=False):
+        """自動操縦の進み具合。goal を渡すと、ゴールも変える(None で消す)."""
+        with self._lock:
+            self._nav = (phase, text, remaining)
+            if goal is not False:
+                self._goal = goal
+            if phase in (NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED):
+                self._plan = []                 # 終わったら、道の表示を消す
+
+    def on_nav_feedback(self, remaining):
+        """走っている途中の知らせ(ゴールまでの残りの距離 [m])."""
+        with self._lock:
+            if self._nav[0] == NAV_RUNNING:
+                self._nav = (NAV_RUNNING, self._nav[1], float(remaining))
+
+    def on_plan(self, points):
+        """自動操縦が探した道(/plan。地図の座標の [(x, y)])."""
+        with self._lock:
+            if self._nav[0] in (NAV_SENDING, NAV_RUNNING):
+                self._plan = [(float(x), float(y)) for x, y in points]
+
+    def on_mux(self, source, now):
+        """cmd_vel_mux が今通している指令('teleop' / 'nav' / '')."""
+        with self._lock:
+            self._mux = source
+            self._mux_time = now
+
     def sample(self, now):
         """グラフ用に、今の値を 1 つ記録する(画面が定期的に呼ぶ)."""
         snap = self.snapshot(now, with_history=False)
@@ -287,6 +344,12 @@ class ConsoleState:
             if self._truth_time is not None and now - self._truth_time < SCAN_TIMEOUT_S:
                 snap.truth = self._truth
             snap.stm_rows = self._stm_rows(now)
+            snap.nav_ready = self._nav_ready
+            snap.nav_phase, snap.nav_text, snap.nav_remaining = self._nav
+            snap.goal = self._goal
+            snap.plan = list(self._plan)
+            if self._mux_time is not None and now - self._mux_time < MUX_TIMEOUT_S:
+                snap.mux_source = self._mux
             if with_history:
                 snap.history = list(self._history)
             snap.stopped = self._stopped(now)

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_nav</name>
+  <version>0.0.0</version>
+  <description>Nav2(自動操縦)の起動ファイルと設定。フィールドの地図(field_map)を使う</description>
+  <maintainer email="e2527@matsue-ct.ac.jp">E2527</maintainer>
+  <license>TODO: License declaration</license>
+
+  <!-- Nav2 一式。Pi のイメージには入れない(docker/Dockerfile.pi の --skip-keys) -->
+  <exec_depend>navigation2</exec_depend>
+  <exec_depend>field_map</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

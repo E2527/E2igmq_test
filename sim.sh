@@ -8,6 +8,8 @@
 #   ./sim.sh fw         … STM32 のファームウェアもそのまま動かす
 #   ./sim.sh joy        … ゲームパッドでも操縦する
 #   ./sim.sh rviz       … rviz2 も開く(./sim.sh omni fw rviz のように組み合わせる)
+#   ./sim.sh nav        … 自動操縦(Nav2)も起動する(「自動操縦」タブで地図をクリック)
+#   ./sim.sh amcl       … 自動操縦 + AMCL(LiDAR で自分の位置を合わせる。実機と同じやり方)
 #
 # 起動する前に、変わったところだけ colcon build する(数秒)。Ctrl+C で全部止まる。
 # コンテナの中では、~/ros2_ws で ./sim.sh(同じ使い方)を実行する。

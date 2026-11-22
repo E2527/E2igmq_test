@@ -237,13 +237,16 @@ class TrailView(_View):
     """
 
     BASE_MIN = (240, 240)
+    # 位置と向きを選ぶもの: ロボットを置く(シミュレーター)/ 自動操縦のゴール / AMCL に位置を知らせる
+    POSE_MODES = ('pose', 'goal', 'initial')
 
     GRID_STEPS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
     FREE_RGB = (255, 255, 255)      # 地図の通れるマス
     BLOCKED_RGB = (138, 148, 165)   # 地図のふさがっているマス
     UNKNOWN_RGB = (228, 233, 240)   # 地図の分からないマス
 
-    posePicked = pyqtSignal(float, float, float)    # 地図をクリック(+ ドラッグで向き)した (x, y, 向き)
+    # 地図をクリック(+ ドラッグで向き)した (選ぶもの, x, y, 向き)。選ぶものは POSE_MODES のどれか
+    posePicked = pyqtSignal(str, float, float, float)
     pointPicked = pyqtSignal(float, float)          # 地図をクリックした (x, y)
 
     def __init__(self):
@@ -253,7 +256,7 @@ class TrailView(_View):
         self.map_image = None
         self.map_version = None
         self.obstacles = []         # シミュレーターで置いた障害物 [(x, y, 半径)]
-        self.pick_mode = None       # None / 'pose'(ロボットを置く)/ 'point'(障害物を置く)
+        self.pick_mode = None       # None / POSE_MODES のどれか / 'point'(障害物を置く)
         self.pick_start = None      # ドラッグを始めた地図の座標
         self.pick_now = None
         self.view = None            # 最後に描いたときの (mid_x, mid_y, scale)。クリックの位置を直すのに使う
@@ -289,11 +292,11 @@ class TrailView(_View):
         (x0, y0), (x1, y1) = self.pick_start, self.to_map(event.pos())
         mode = self.pick_mode
         self.set_pick_mode(None)
-        if mode == 'pose':
+        if mode in self.POSE_MODES:
             # ドラッグした向きがロボットの向き。ほぼ動かしていなければ、今の向きのまま
             yaw = math.atan2(y1 - y0, x1 - x0) if math.hypot(x1 - x0, y1 - y0) > 0.05 \
                 else self.snap.map_pose[2]
-            self.posePicked.emit(x0, y0, yaw)
+            self.posePicked.emit(mode, x0, y0, yaw)
         elif mode == 'point':
             self.pointPicked.emit(x0, y0)
 
@@ -396,6 +399,24 @@ class TrailView(_View):
             p.setBrush(th.color(th.WARN, 60))
             p.drawEllipse(point(ox, oy), r * scale, r * scale)
 
+        # 自動操縦の道(紫の線)とゴール(紫の旗の矢印)
+        if len(snap.plan) >= 2:
+            path = QPainterPath(point(*snap.plan[0]))
+            for q in snap.plan[1:]:
+                path.lineTo(point(*q))
+            p.setBrush(Qt.NoBrush)
+            p.setPen(th.pen(th.ACCENT_2, 3.0))
+            p.drawPath(path)
+        if snap.goal is not None:
+            gx, gy, gyaw = snap.goal
+            alpha = 255 if snap.navigating else 110
+            start = point(gx, gy)
+            p.setPen(th.pen(th.ACCENT_2, 2.0, alpha))
+            p.setBrush(th.color(th.ACCENT_2, alpha // 4))
+            p.drawEllipse(start, 10, 10)
+            th.draw_arrow(p, start, point(gx + 0.35 * math.cos(gyaw), gy + 0.35 * math.sin(gyaw)),
+                          th.ACCENT_2, 2.4, head=10, alpha=alpha)
+
         # シミュレーションの本当の位置(灰色の三角。オドメトリとずれると離れて見える)
         if snap.truth is not None:
             tx, ty, tyaw = snap.truth
@@ -422,7 +443,7 @@ class TrailView(_View):
             p.setPen(th.pen(th.ACCENT_2, 2.0, dashed=True))
             p.setBrush(th.color(th.ACCENT_2, 50))
             p.drawEllipse(start, 14, 14)
-            if self.pick_mode == 'pose':
+            if self.pick_mode in self.POSE_MODES:
                 th.draw_arrow(p, start, now_pt, th.ACCENT_2, 2.4, head=12)
 
         # ロボット(向きを指す三角)
