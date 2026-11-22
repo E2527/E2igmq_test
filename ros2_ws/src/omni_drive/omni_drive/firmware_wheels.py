@@ -17,6 +17,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray
 from swerve_drive import firmware_sim
 from swerve_drive.sim_faults import SimFaults
+from swerve_drive.sim_params import serve_params
 
 
 class FirmwareWheels(Node):
@@ -41,6 +42,7 @@ class FirmwareWheels(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{board}/command',
                 lambda msg, b=board: self.on_command(b, msg), 10)
+        serve_params(self, self.sims)       # ゲインの読み書き(ロボットコンソールの「調整」タブ)
         self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.period = 1.0 / rate_hz
         self.create_timer(self.period, self.step)

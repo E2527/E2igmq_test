@@ -30,6 +30,9 @@ static float s_state[UART_NODE_MAX_FLOATS];
 static uint8_t s_state_n;
 static uint8_t s_tx[FRAME_MAX];
 
+static const param_table_t *s_params;
+static param_queue_t s_param_queue;
+
 static uint16_t crc16_modbus(const uint8_t *data, size_t len)
 {
     uint16_t crc = 0xFFFF;
@@ -49,6 +52,10 @@ static void start_receive(void)
 
 static void handle_frame(uint16_t id, const uint8_t *data, uint8_t len)
 {
+    if (id == PARAM_REQUEST_BASE + s_id) {
+        param_queue_push(&s_param_queue, data, len);    /* 返事はメインループで */
+        return;
+    }
     if (id != UART_NODE_COMMAND_BASE + s_id || len % 4u != 0u || len / 4u > UART_NODE_MAX_FLOATS) {
         return;
     }
@@ -108,6 +115,7 @@ HAL_StatusTypeDef uart_node_init(UART_HandleTypeDef *huart, uint8_t id)
     s_cmd_received = false;
     s_state_n = 0;
     s_last_send = HAL_GetTick();
+    param_queue_init(&s_param_queue);
     return HAL_UART_Receive_IT(huart, &s_rx_byte, 1);
 }
 
@@ -135,31 +143,50 @@ uint8_t uart_node_get_command(float *values, uint8_t max, uint32_t timeout_ms)
     return fresh ? n : 0;
 }
 
-void uart_node_update(void)
+/* s_tx[5] からの len バイトのデータに、区切り・ID・長さ・CRC を付けて送る */
+static void send_frame(uint16_t id, uint8_t len)
 {
-    uint32_t now = HAL_GetTick();
-    if (now - s_last_send < UART_NODE_STATE_PERIOD_MS) {
-        return;
-    }
-    if (s_huart->gState != HAL_UART_STATE_READY) {
-        return;   /* 前の送信がまだ終わっていない */
-    }
-    s_last_send = now;
-
-    uint16_t id = (uint16_t)(UART_NODE_STATE_BASE + s_id);
     s_tx[0] = SYNC0;
     s_tx[1] = SYNC1;
     s_tx[2] = (uint8_t)(id & 0xFFu);
     s_tx[3] = (uint8_t)(id >> 8);
-    __disable_irq();
-    uint8_t len = (uint8_t)(s_state_n * 4u);
-    memcpy(&s_tx[5], s_state, len);
-    __enable_irq();
     s_tx[4] = len;
     uint16_t crc = crc16_modbus(&s_tx[2], 3u + len);
     s_tx[5u + len] = (uint8_t)(crc & 0xFFu);
     s_tx[6u + len] = (uint8_t)(crc >> 8);
     HAL_UART_Transmit_IT(s_huart, s_tx, (uint16_t)(7u + len));
+}
+
+void uart_node_set_params(const param_table_t *table)
+{
+    s_params = table;
+}
+
+void uart_node_update(void)
+{
+    if (s_huart->gState != HAL_UART_STATE_READY) {
+        return;   /* 前の送信がまだ終わっていない */
+    }
+    /* 設定値の頼みごとの返事を、状態より先に送る */
+    uint8_t request[PARAM_FRAME_LEN];
+    uint8_t request_len;
+    if (param_queue_peek(&s_param_queue, request, &request_len)) {
+        params_handle(s_params, request, request_len, &s_tx[5]);
+        param_queue_drop(&s_param_queue);
+        send_frame((uint16_t)(PARAM_REPLY_BASE + s_id), PARAM_FRAME_LEN);
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+    if (now - s_last_send < UART_NODE_STATE_PERIOD_MS) {
+        return;
+    }
+    s_last_send = now;
+    __disable_irq();
+    uint8_t len = (uint8_t)(s_state_n * 4u);
+    memcpy(&s_tx[5], s_state, len);
+    __enable_irq();
+    send_frame((uint16_t)(UART_NODE_STATE_BASE + s_id), len);
 }
 
 void uart_node_on_rx_cplt(UART_HandleTypeDef *huart)

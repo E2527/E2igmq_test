@@ -3,7 +3,8 @@
 #include "main.h"
 
 uint32_t stub_tick;
-CAN_FilterTypeDef stub_can_filter;
+CAN_FilterTypeDef stub_can_filter;          /* 1 つ目(FilterBank 0) */
+CAN_FilterTypeDef stub_can_filters[2];      /* FilterBank ごと */
 uint32_t stub_can_tx_free = 3;
 CAN_TxHeaderTypeDef stub_can_tx_header;
 uint8_t stub_can_tx_data[8];
@@ -39,7 +40,12 @@ HAL_StatusTypeDef HAL_TIM_Encoder_Start(TIM_HandleTypeDef *h, uint32_t channel)
 HAL_StatusTypeDef HAL_CAN_ConfigFilter(CAN_HandleTypeDef *h, const CAN_FilterTypeDef *f)
 {
     (void)h;
-    stub_can_filter = *f;
+    if (f->FilterBank == 0) {
+        stub_can_filter = *f;
+    }
+    if (f->FilterBank < 2) {
+        stub_can_filters[f->FilterBank] = *f;
+    }
     return HAL_OK;
 }
 

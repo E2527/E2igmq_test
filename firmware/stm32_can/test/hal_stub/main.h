@@ -80,6 +80,7 @@ void __enable_irq(void);
 /* ---- テストから操作する変数(hal_stub.c) ---- */
 extern uint32_t stub_tick;
 extern CAN_FilterTypeDef stub_can_filter;
+extern CAN_FilterTypeDef stub_can_filters[2];
 extern uint32_t stub_can_tx_free;
 extern CAN_TxHeaderTypeDef stub_can_tx_header;
 extern uint8_t stub_can_tx_data[8];

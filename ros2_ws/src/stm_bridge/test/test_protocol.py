@@ -92,3 +92,56 @@ def test_serial_bus_roundtrip_over_pty():
         bus.close()
         os.close(master)
         os.close(slave)
+
+
+def test_param_messages():
+    assert protocol.param_request_id(2) == 0x302 and protocol.param_reply_id(2) == 0x402
+    # 読む: 1 バイト、書く: 8 バイト(firmware/stm32_can/params.h と同じ並び)
+    assert protocol.pack_param_request(10) == bytes([10])
+    data = protocol.pack_param_request(10, 8.5)
+    assert len(data) == 8 and data[0] == 10 and data[1:4] == b'\x00\x00\x00'
+    assert protocol.unpack_param_request(data) == (10, 8.5)
+    assert protocol.unpack_param_request(bytes([3])) == (3, None)
+    with pytest.raises(ValueError):
+        protocol.pack_param_request(1, float('nan'))
+    reply = protocol.pack_param_reply(10, protocol.PARAM_OUT_OF_RANGE, 8.0)
+    assert protocol.unpack_param_reply(reply) == (10, protocol.PARAM_OUT_OF_RANGE, 8.0)
+    with pytest.raises(ValueError):
+        protocol.unpack_param_reply(b'\x01')
+
+
+def test_filters_split_directions():
+    def passes(filt, can_id):
+        return (can_id & filt[1]) == (filt[0] & filt[1])
+    to_pi, to_stm = protocol.STATE_FILTER, protocol.COMMAND_FILTER
+    for can_id in (0x201, 0x401):       # STM32 → Pi
+        assert passes(to_pi, can_id) and not passes(to_stm, can_id)
+    for can_id in (0x101, 0x301):       # Pi → STM32
+        assert passes(to_stm, can_id) and not passes(to_pi, can_id)
+
+
+def test_param_ids_match_firmware():
+    """番号が firmware/stm32_can/params.h の PARAM_ID_* と同じか."""
+    import os
+    import re
+    header = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'firmware',
+                          'stm32_can', 'params.h')
+    if not os.path.exists(header):          # Pi のイメージなど、firmware がないとき
+        pytest.skip('firmware/stm32_can/params.h がない')
+    with open(header, encoding='utf-8') as f:
+        found = {name.lower(): int(num) for name, num in
+                 re.findall(r'#define PARAM_ID_(\w+) (\d+)', f.read())}
+    assert found == protocol.PARAM_IDS
+
+
+def test_fake_stm_answers_params():
+    from stm_bridge.fake_stm import answer_param, FAKE_PARAMS
+    params = {k: list(v) for k, v in FAKE_PARAMS.items()}
+    reply = protocol.unpack_param_reply(answer_param(params, protocol.pack_param_request(1, 0.04)))
+    assert reply[:2] == (1, protocol.PARAM_OK) and reply[2] == pytest.approx(0.04)
+    reply = protocol.unpack_param_reply(answer_param(params, protocol.pack_param_request(1, 99.0)))
+    assert reply[1] == protocol.PARAM_OUT_OF_RANGE and reply[2] == pytest.approx(0.04)
+    assert protocol.unpack_param_reply(answer_param(params, bytes([10])))[1] == \
+        protocol.PARAM_UNKNOWN
+    reply = protocol.unpack_param_reply(answer_param(params, protocol.pack_param_request(0, 1.0)))
+    assert reply[1] == protocol.PARAM_READ_ONLY

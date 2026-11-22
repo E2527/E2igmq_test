@@ -15,6 +15,9 @@ static bool s_cmd_received;
 static float s_state[CAN_NODE_MAX_FLOATS];
 static uint8_t s_state_n;
 
+static const param_table_t *s_params;
+static param_queue_t s_param_queue;
+
 HAL_StatusTypeDef can_node_init(CAN_HandleTypeDef *hcan, uint8_t id)
 {
     s_hcan = hcan;
@@ -23,6 +26,7 @@ HAL_StatusTypeDef can_node_init(CAN_HandleTypeDef *hcan, uint8_t id)
     s_cmd_received = false;
     s_state_n = 0;
     s_last_send = HAL_GetTick();
+    param_queue_init(&s_param_queue);
 
     /* 32 ビットのマスクモードで、標準 ID = 0x100 + id のデータフレームだけを FIFO0 に入れる。
      * レジスタの並び: 上位 16 ビットの bit15〜5 が標準 ID、下位 16 ビットの bit2 が IDE、bit1 が RTR */
@@ -39,6 +43,11 @@ HAL_StatusTypeDef can_node_init(CAN_HandleTypeDef *hcan, uint8_t id)
     filter.SlaveStartFilterBank = 14;
 
     HAL_StatusTypeDef st = HAL_CAN_ConfigFilter(hcan, &filter);
+    if (st == HAL_OK) {             /* 2 つ目: 設定値の頼みごと 0x300 + id */
+        filter.FilterBank = 1;
+        filter.FilterIdHigh = (uint32_t)((PARAM_REQUEST_BASE + id) << 5);
+        st = HAL_CAN_ConfigFilter(hcan, &filter);
+    }
     if (st == HAL_OK) {
         st = HAL_CAN_Start(hcan);
     }
@@ -72,8 +81,37 @@ uint8_t can_node_get_command(float *values, uint8_t max, uint32_t timeout_ms)
     return fresh ? n : 0;
 }
 
+void can_node_set_params(const param_table_t *table)
+{
+    s_params = table;
+}
+
+/* 設定値の頼みごとがあれば、1 つ処理して返事を送る。送れなければ次の回にもう一度 */
+static void answer_param(void)
+{
+    uint8_t request[PARAM_FRAME_LEN];
+    uint8_t len;
+    if (!param_queue_peek(&s_param_queue, request, &len)
+        || HAL_CAN_GetTxMailboxesFreeLevel(s_hcan) == 0) {
+        return;
+    }
+    uint8_t reply[PARAM_FRAME_LEN];
+    params_handle(s_params, request, len, reply);
+    CAN_TxHeaderTypeDef header = {0};
+    header.StdId = PARAM_REPLY_BASE + s_id;
+    header.IDE = CAN_ID_STD;
+    header.RTR = CAN_RTR_DATA;
+    header.DLC = PARAM_FRAME_LEN;
+    header.TransmitGlobalTime = DISABLE;
+    uint32_t mailbox;
+    if (HAL_CAN_AddTxMessage(s_hcan, &header, reply, &mailbox) == HAL_OK) {
+        param_queue_drop(&s_param_queue);
+    }
+}
+
 void can_node_update(void)
 {
+    answer_param();
     uint32_t now = HAL_GetTick();
     if (now - s_last_send < CAN_NODE_STATE_PERIOD_MS) {
         return;
@@ -109,7 +147,14 @@ void can_node_on_rx_fifo0(CAN_HandleTypeDef *hcan)
         if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &header, data) != HAL_OK) {
             return;
         }
-        if (header.IDE != CAN_ID_STD || header.StdId != CAN_NODE_COMMAND_BASE + s_id
+        if (header.IDE != CAN_ID_STD) {
+            continue;
+        }
+        if (header.StdId == PARAM_REQUEST_BASE + s_id) {
+            param_queue_push(&s_param_queue, data, (uint8_t)header.DLC);   /* 返事はメインループで */
+            continue;
+        }
+        if (header.StdId != CAN_NODE_COMMAND_BASE + s_id
             || header.DLC % 4 != 0 || header.DLC / 4 > CAN_NODE_MAX_FLOATS) {
             continue;
         }

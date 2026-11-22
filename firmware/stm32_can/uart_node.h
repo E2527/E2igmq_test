@@ -9,6 +9,7 @@
  *
  *   0x100 + ID … Pi → STM32 の指令値(float 2 個まで。0 バイトは「止まる」)
  *   0x200 + ID … STM32 → Pi の状態(float 2 個まで)
+ *   0x300 + ID … Pi → STM32 の設定値(ゲインなど)の読み書き / 0x400 + ID … その返事(params.h)
  *
  * Pi / PC 側は stm_bridge の can_interface を serial:/dev/ttyACM0 にする。
  *
@@ -23,6 +24,7 @@
 #include <stdint.h>
 
 #include "main.h"
+#include "params.h"
 
 #define UART_NODE_COMMAND_BASE 0x100u
 #define UART_NODE_STATE_BASE 0x200u
@@ -45,7 +47,10 @@ void uart_node_set_state(const float *values, uint8_t n);
 /* 最新の指令を values に入れて個数を返す。0 は「止まる」(空の指令、または timeout_ms 以上届いていない) */
 uint8_t uart_node_get_command(float *values, uint8_t max, uint32_t timeout_ms);
 
-/* メインループで呼ぶ。UART_NODE_STATE_PERIOD_MS ごとに状態を送る */
+/* 通信で読み書きする設定値の一覧(params.h)。NULL なら、頼まれても「ない」と返す */
+void uart_node_set_params(const param_table_t *table);
+
+/* メインループで呼ぶ。設定値の頼みごとに返事をし、UART_NODE_STATE_PERIOD_MS ごとに状態を送る */
 void uart_node_update(void);
 
 void uart_node_on_rx_cplt(UART_HandleTypeDef *huart);

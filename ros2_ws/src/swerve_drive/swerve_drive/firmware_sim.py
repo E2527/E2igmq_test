@@ -19,7 +19,9 @@ def build(firmware_dir: str = DEFAULT_FIRMWARE_DIR) -> ctypes.CDLL:
     common = os.path.join(firmware_dir, 'stm32_can')
     sources = [os.path.join(firmware_dir, 'sim', 'firmware_sim.c'),
                os.path.join(common, 'speed_pid.c'),
-               os.path.join(common, 'swerve_module.c')]
+               os.path.join(common, 'swerve_module.c'),
+               os.path.join(common, 'params.c'),
+               os.path.join(common, 'control_params.c')]
     missing = [s for s in sources if not os.path.exists(s)]
     if missing:
         raise FileNotFoundError(
@@ -45,6 +47,8 @@ def build(firmware_dir: str = DEFAULT_FIRMWARE_DIR) -> ctypes.CDLL:
     lib.fw_swerve_create.restype = ctypes.c_void_p
     lib.fw_swerve_run.argtypes = [ctypes.c_void_p, f, f, ctypes.c_int, f, ctypes.POINTER(f)]
     lib.fw_destroy.argtypes = [ctypes.c_void_p]
+    lib.fw_param.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
+                             ctypes.POINTER(ctypes.c_uint8)]
     return lib
 
 
@@ -57,6 +61,12 @@ class _Sim:
         self._lib = lib
         self._handle = handle
         self._out = (ctypes.c_float * n_out)()
+
+    def param(self, request: bytes) -> bytes:
+        """ゲインの読み書きの頼みごと(通信の 0x300 + ID と同じバイト列)に、返事の 8 バイトを返す."""
+        reply = (ctypes.c_uint8 * 8)()
+        self._lib.fw_param(self._handle, bytes(request), len(request), reply)
+        return bytes(reply)
 
     def close(self):
         if self._handle:

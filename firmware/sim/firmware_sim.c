@@ -4,6 +4,7 @@
  * ファームウェアと同じ部品と設定をそのまま使う:
  *   ../stm32_can/speed_pid.c     … エンコーダから速度を求める計算と、速度の PID
  *   ../stm32_can/swerve_module.c … スワーブの向きの制御と差動ミキシング
+ *   ../stm32_can/params.c / control_params.c … ゲインを通信で読み書きする(ロボットコンソールの「調整」タブ)
  *   ../motor_node_f303k8/Core/Inc/app_config.h … ゲイン・ギア比・エンコーダのカウント数
  * 1 ms ごとの処理の順番は、ファームウェアの app_swerve.c / app.c と motor.c に合わせてある。
  *
@@ -20,6 +21,8 @@
 #include <stdlib.h>
 
 #include "app_config.h"
+#include "control_params.h"
+#include "params.h"
 #include "speed_pid.h"
 #include "swerve_module.h"
 
@@ -46,6 +49,9 @@ typedef struct {
     swerve_module_t module;
     float mech_steer_ratio; /* 本当の機構のギア比 */
     float mech_wheel_ratio;
+    /* ゲインの読み書き(ファームウェアと同じ一覧) */
+    control_params_ctx_t params_ctx;
+    param_table_t params;
 } fw_sim_t;
 
 static fw_sim_t *create(float no_load_speed, float time_constant)
@@ -63,6 +69,8 @@ static fw_sim_t *create(float no_load_speed, float time_constant)
         s->pid[i] = (speed_pid_t){.kp = APP_KP, .ki = APP_KI, .kff = APP_KFF, .max_duty = APP_MAX_DUTY};
         speed_pid_reset(&s->pid[i]);
     }
+    s->params_ctx = (control_params_ctx_t){.pid = {&s->pid[0], &s->pid[1]}, .module = NULL};
+    control_params_init(&s->params, &s->params_ctx);
     return s;
 }
 
@@ -106,6 +114,13 @@ void fw_destroy(void *sim)
     free(sim);
 }
 
+/* ゲインの読み書きの頼みごと(data、len バイト。通信の 0x300 + ID と同じ)に、返事の 8 バイトを作る */
+void fw_param(void *sim, const uint8_t *data, int len, uint8_t reply[8])
+{
+    fw_sim_t *s = sim;
+    params_handle(&s->params, data, (uint8_t)len, reply);
+}
+
 /* ---- モーター 2 個の速度制御(APP なしの通常版。オムニホイール用) ---- */
 
 void *fw_board_create(float no_load_speed, float time_constant)
@@ -141,10 +156,14 @@ void *fw_swerve_create(float no_load_speed, float time_constant, float mech_stee
         .wheel_ratio = APP_SWERVE_WHEEL_RATIO,
         .coupling = APP_SWERVE_COUPLING,
         .angle_kp = APP_SWERVE_ANGLE_KP,
+        .angle_kd = APP_SWERVE_ANGLE_KD,
+        .angle_ff = APP_SWERVE_ANGLE_FF,
         .max_steer_rate = APP_SWERVE_MAX_STEER_RATE,
         .max_motor_speed = APP_SWERVE_MAX_MOTOR_SPEED,
     };
     swerve_init(&s->module, &cfg, 0.0f);
+    s->params_ctx.module = &s->module;
+    control_params_init(&s->params, &s->params_ctx);
     s->mech_steer_ratio = mech_steer_ratio != 0.0f ? mech_steer_ratio : APP_SWERVE_STEER_RATIO;
     s->mech_wheel_ratio = mech_wheel_ratio != 0.0f ? mech_wheel_ratio : APP_SWERVE_WHEEL_RATIO;
     return s;
@@ -166,7 +185,11 @@ void fw_swerve_run(void *sim, float target_angle, float target_wheel, int runnin
         swerve_update_angle(&s->module, s->delta[0], s->delta[1]);
         float target[2] = {0.0f, 0.0f};
         if (running) {
-            swerve_mix(&s->module, target_angle, target_wheel, &target[0], &target[1]);
+            swerve_mix(&s->module, target_angle, target_wheel,
+                       swerve_steer_rate(&s->module, s->measured[0], s->measured[1]), SIM_DT,
+                       &target[0], &target[1]);
+        } else {
+            swerve_reset_target(&s->module);
         }
         control(s, target, running);
     }

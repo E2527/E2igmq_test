@@ -18,11 +18,14 @@
 
 #include "app_common.h"
 #include "app_config.h"
+#include "control_params.h"
 #include "link.h"
 #include "main.h"
 #include "motor.h"
 
 static motor_t s_motors[2];
+static control_params_ctx_t s_params_ctx;
+static param_table_t s_params;      /* ゲインを通信で読み書きする(ロボットコンソールの「調整」タブ) */
 static uint32_t s_last_tick;
 static bool s_running;
 
@@ -32,6 +35,9 @@ void app_init(void)
     if (link_init() != HAL_OK) {
         Error_Handler();
     }
+    s_params_ctx = (control_params_ctx_t){.pid = {&s_motors[0].pid, &s_motors[1].pid}, .module = NULL};
+    control_params_init(&s_params, &s_params_ctx);
+    link_set_params(&s_params);
     s_last_tick = HAL_GetTick();
 }
 
