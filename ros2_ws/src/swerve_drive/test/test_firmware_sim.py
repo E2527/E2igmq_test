@@ -57,3 +57,30 @@ def test_board_follows_speed_targets(lib):
         assert abs(s1) < 0.5 and abs(s2) < 0.5
     finally:
         sim.close()
+
+
+def test_gains_can_be_changed_over_the_link(lib):
+    """ゲインの読み書き(通信の 0x300 + ID と同じ頼みごと)で、ファームウェアの動きが変わる."""
+    import struct
+    sim = firmware_sim.SwerveSim(lib)
+    try:
+        def ask(param_id, value=None):
+            req = bytes([param_id]) if value is None else struct.pack('<B3xf', param_id, value)
+            return struct.unpack('<BB2xf', sim.param(req))
+
+        assert ask(0) == (0, 0, 2.0)                    # ファームウェアの種類: スワーブ
+        param_id, status, kp = ask(10)                  # 向きの P ゲイン(app_config.h の値)
+        assert status == 0 and kp > 0
+        assert ask(10, 2.0) == (10, 0, 2.0)
+        assert ask(10, 1000.0)[1] == 2                  # 範囲の外は書かない
+        assert ask(99)[1] == 1                          # ない番号
+
+        # P ゲインを小さくすると、向きが合うのが遅くなる
+        slow = sim.run(1.0, 0.0, True, 0.1)[0]
+        ask(20, 0.0)                                    # 今の向きを 0 にする
+        assert abs(ask(20)[2]) < 1e-6
+        ask(10, kp)
+        fast = sim.run(1.0, 0.0, True, 0.1)[0]
+        assert fast > slow
+    finally:
+        sim.close()

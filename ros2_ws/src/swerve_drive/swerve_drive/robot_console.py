@@ -65,6 +65,7 @@ from visualization_msgs.msg import MarkerArray
 
 from . import console_state as cs
 from . import console_theme as th
+from . import console_tuning
 from . import console_widgets as widgets
 from . import robot_status
 from .teleop_keys import KEY_DIRECTIONS, twist_from_keys
@@ -141,7 +142,9 @@ class ConsoleNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.create_timer(0.2, self.update_odom_in_map)
         # 通信の様子: stm<ID>/command と stm<ID>/state を見つけしだい、見るだけの購読をする
+        # ゲインの読み書き(「調整」タブ): stm<ID>/param に頼み、stm<ID>/param_reply で返事を受け取る
         self.stm_subscribed = set()
+        self.param_pubs = {}
         self.create_timer(1.0, self.discover_stm)
         # 自動操縦(Nav2)。起動していなければ、ゴールを送れないだけ
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -222,6 +225,12 @@ class ConsoleNode(Node):
                 Float32MultiArray, name,
                 lambda msg, d=dev_id, k=kind: self.state.on_stm(d, k, msg.data, time.monotonic()),
                 10)
+            if dev_id not in self.param_pubs:
+                self.param_pubs[dev_id] = self.create_publisher(
+                    Float32MultiArray, f'/stm{dev_id}/param', 10)
+                self.create_subscription(
+                    Float32MultiArray, f'/stm{dev_id}/param_reply',
+                    lambda msg, d=dev_id: self.on_param_reply(d, msg), 10)
 
     def on_amcl(self, msg):
         cov = msg.pose.covariance
@@ -231,6 +240,18 @@ class ConsoleNode(Node):
     def on_plan(self, msg):
         # 道は地図の座標(Nav2 の global_frame)で届く
         self.state.on_plan([(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses])
+
+    def on_param_reply(self, dev_id, msg):
+        if len(msg.data) >= 3:
+            self.state.on_param_reply(dev_id, int(msg.data[0]), int(msg.data[1]), msg.data[2],
+                                      time.monotonic())
+
+    def request_param(self, dev_id, param_id, value=None):
+        """STM32 のゲインを読む(value が None)/ 書く。返事は on_param_reply に届く."""
+        pub = self.param_pubs.get(dev_id)
+        if pub is not None:
+            data = [float(param_id)] if value is None else [float(param_id), float(value)]
+            pub.publish(Float32MultiArray(data=data))
 
     def update_odom_in_map(self):
         # 自分の位置を合わせる部品(AMCL など)がなければ、地図とオドメトリは同じとみなす
@@ -384,12 +405,12 @@ class ConsoleWindow(QMainWindow):
         中央 … 地図(/map)の上に、ロボットの位置と向き、走った跡、LiDAR の点
         右   … タブ: 操縦(速さ + WASD)/ 自動操縦(ゴールを置く)/ ロボット(各モジュールの向き)/
                LiDAR / 状態 / 通信(STM32 ごとの指令・状態の中身と回数)/
-               グラフ(指令と実際の値の時間変化)
+               グラフ(指令と実際の値の時間変化)/ 調整(STM32 のゲインを書き込み直さずに変える)
         下   … 位置・向き・速さ
     """
 
     TITLE = 'ロボットコンソール'
-    SIDE_WIDTH = 470            # 右の欄の幅(タブが全部見える幅)
+    SIDE_WIDTH = 500            # 右の欄の幅(タブが全部見える幅)
 
     def __init__(self, node):
         super().__init__()
@@ -662,6 +683,8 @@ class ConsoleWindow(QMainWindow):
         tabs.addTab(self.status, '状態')
         tabs.addTab(self.stm_table, '通信')
         tabs.addTab(self.make_graph_tab(), 'グラフ')
+        self.tune_tab = console_tuning.TuneTab(self.node)
+        tabs.addTab(self.tune_tab, '調整')
         self.extra_tabs(tabs)
         self.tabs = tabs
         # 自動操縦のタブを開いている間は、地図をクリックするだけでゴールを置ける
@@ -702,6 +725,8 @@ class ConsoleWindow(QMainWindow):
             view.set_snapshot(snap)
         if self.tabs.currentWidget() is self.plot.parentWidget():
             self.update_graph(snap)
+        if self.tabs.currentWidget() is self.tune_tab:
+            self.tune_tab.refresh(snap)
         self.update_nav(snap)
         self.on_refresh(snap)
         self.keypad.set_keys(self.keys, self.isActiveWindow(), snap.stopped)

@@ -81,7 +81,7 @@ class SimulatorWindow(rc.ConsoleWindow):
     """ロボットコンソールの画面 + 「シミュレーション」のタブ."""
 
     TITLE = 'シミュレーター'
-    SIDE_WIDTH = 590            # 「シミュレーション」のタブの分だけ広くする
+    SIDE_WIDTH = 640            # 「シミュレーション」のタブの分だけ広くする
 
     def __init__(self, node):
         self.obstacles = []

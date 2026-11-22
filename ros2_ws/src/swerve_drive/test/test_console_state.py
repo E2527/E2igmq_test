@@ -209,9 +209,32 @@ def test_map_clearance():
     assert grid.clearance(0.3, 0.8, 0.1) == pytest.approx(0.1)       # limit までしか調べない
 
 
+def test_param_replies():
+    state = cs.ConsoleState()
+    assert state.snapshot(0.0).params == {}
+    state.on_param_reply(2, 10, 0, 8.0, 1.0)
+    state.on_param_reply(2, 10, 2, 8.0, 2.0)        # 新しい返事で上書き
+    state.on_param_reply(3, 1, 0, 0.02, 2.0)
+    params = state.snapshot(3.0).params
+    assert params[2][10] == (8.0, 2, 1.0) and params[3][1] == (pytest.approx(0.02), 0, 1.0)
+
+
 def test_mux_source_times_out():
     state = cs.ConsoleState()
     assert state.snapshot(0.0).mux_source is None
     state.on_mux('nav', 1.0)
     assert state.snapshot(1.5).mux_source == 'nav'
     assert state.snapshot(3.0).mux_source is None
+
+
+def test_tuning_helpers():
+    pytest.importorskip('PyQt5')
+    pytest.importorskip('stm_bridge')
+    from swerve_drive import console_tuning as ct
+    values = {0: (2.0, 0, 0.0), 1: (0.02, 0, 0.0), 10: (8.0, 0, 0.0), 11: (0.0, 1, 0.0)}
+    assert ct.firmware_kind(values) == 'swerve'
+    assert ct.firmware_kind({}) is None
+    text = ct.config_text(values)
+    assert '#define APP_KP 0.02f' in text
+    assert '#define APP_SWERVE_ANGLE_KP 8.0f' in text      # 8f は C では書けない
+    assert 'ANGLE_KD' not in text                          # 読めなかった値は書かない

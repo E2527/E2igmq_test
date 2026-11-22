@@ -6,6 +6,7 @@ firmware/stm32_can の STM32 と同じ動きをする:
   - 速度制御されたモーターのように、実際の速度が目標速度に time_constant でなめらかに近づく
   - period_ms ごとに 0x200 + ID で状態(モーター 2 個の実際の速度 [rad/s])を送る
   - 指令が watchdog_ms 以上届かない、または空の指令なら目標を 0 にする(止まる)
+  - 0x300 + ID のゲインの読み書きに、0x400 + ID で答える(モーター 2 個の版と同じ番号。値は覚えるだけ)
 
     ros2 run stm_bridge fake_stm --ids 1 2                        # カーネルに CAN がない PC 向け
     ros2 run stm_bridge bridge --ros-args -p can_interface:=sim -p "device_ids:=[1, 2]"
@@ -17,6 +18,30 @@ import argparse
 import time
 
 from stm_bridge import can_bus, protocol
+
+# ゲインの初期値(firmware/motor_node_f303k8/Core/Inc/app_config.h と同じ)と範囲(control_params.c と同じ)
+FAKE_PARAMS = {0: (1.0, None), 1: (0.02, (0.0, 5.0)), 2: (0.5, (0.0, 50.0)),
+               3: (1.0 / 30.0, (0.0, 1.0)), 4: (0.95, (0.0, 1.0))}
+
+
+def answer_param(params, data):
+    """ゲインの頼みごとに答える(params は {番号: [値, 範囲]})。返事のバイト列を返す."""
+    try:
+        param_id, value = protocol.unpack_param_request(data)
+    except ValueError:
+        return protocol.pack_param_reply(data[0] if data else 0, protocol.PARAM_BAD_REQUEST, 0.0)
+    if param_id not in params:
+        return protocol.pack_param_reply(param_id, protocol.PARAM_UNKNOWN, 0.0)
+    entry = params[param_id]
+    status = protocol.PARAM_OK
+    if value is not None:
+        if entry[1] is None:
+            status = protocol.PARAM_READ_ONLY
+        elif not entry[1][0] <= value <= entry[1][1]:
+            status = protocol.PARAM_OUT_OF_RANGE
+        else:
+            entry[0] = value
+    return protocol.pack_param_reply(param_id, status, entry[0])
 
 
 def main():
@@ -33,6 +58,7 @@ def main():
     print(f'{args.interface} で ID {args.ids} の STM32 として動いています(Ctrl+C で終了)', flush=True)
 
     commands = {i: (0.0, []) for i in args.ids}   # ID -> (受け取った時刻, 目標速度)
+    params = {i: {k: list(v) for k, v in FAKE_PARAMS.items()} for i in args.ids}
     speeds = {i: [0.0] * protocol.MAX_FLOATS for i in args.ids}
     period = args.period_ms / 1000.0
     gain = min(1.0, period / args.time_constant)
@@ -44,6 +70,13 @@ def main():
                 dev_id = protocol.device_of(frame[0], protocol.COMMAND_BASE)
                 if dev_id in commands:
                     commands[dev_id] = (time.monotonic(), protocol.unpack_floats(frame[1]))
+                dev_id = protocol.device_of(frame[0], protocol.PARAM_REQUEST_BASE)
+                if dev_id in params:
+                    try:
+                        bus.send(protocol.param_reply_id(dev_id),
+                                 answer_param(params[dev_id], frame[1]))
+                    except OSError:
+                        pass
             now = time.monotonic()
             if now < next_send:
                 continue

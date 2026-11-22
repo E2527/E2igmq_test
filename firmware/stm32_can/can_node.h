@@ -4,6 +4,8 @@
  *
  *   0x100 + ID … Pi → STM32 の指令値(標準 ID、float 2 個まで。0 バイトは「止まる」)
  *   0x200 + ID … STM32 → Pi の状態(float 2 個まで)
+ *   0x300 + ID … Pi → STM32 の設定値(ゲインなど)の読み書き(params.h)
+ *   0x400 + ID … STM32 → Pi の、その返事
  *
  * 使い方(main.c):
  *
@@ -34,6 +36,7 @@
 #include <stdint.h>
 
 #include "main.h"
+#include "params.h"
 
 #define CAN_NODE_COMMAND_BASE 0x100u
 #define CAN_NODE_STATE_BASE 0x200u
@@ -56,7 +59,10 @@ void can_node_set_state(const float *values, uint8_t n);
 /* 最新の指令を values に入れて個数を返す。0 は「止まる」(空の指令、または timeout_ms 以上届いていない) */
 uint8_t can_node_get_command(float *values, uint8_t max, uint32_t timeout_ms);
 
-/* メインループで呼ぶ。CAN_NODE_STATE_PERIOD_MS ごとに状態を送る */
+/* 通信で読み書きする設定値の一覧(params.h)。NULL なら、頼まれても「ない」と返す */
+void can_node_set_params(const param_table_t *table);
+
+/* メインループで呼ぶ。設定値の頼みごとに返事をし、CAN_NODE_STATE_PERIOD_MS ごとに状態を送る */
 void can_node_update(void);
 
 void can_node_on_rx_fifo0(CAN_HandleTypeDef *hcan);

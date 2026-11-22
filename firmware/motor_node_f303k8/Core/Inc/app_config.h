@@ -25,7 +25,8 @@
 #define APP_SPEED_FILTER 0.2f
 
 /* 速度制御のゲイン(README の「動かし始めるときの順番」で調整する)
- * KFF = 1 / (デューティ比 1.0 のときの速度 [rad/s]) */
+ * KFF = 1 / (デューティ比 1.0 のときの速度 [rad/s])
+ * ゲインは、ロボットコンソールの「調整」タブで、書き込み直さずに試せる(電源を切るとここの値にもどる) */
 #define APP_KFF (1.0f / 30.0f)
 #define APP_KP 0.02f
 #define APP_KI 0.5f
@@ -51,6 +52,8 @@
 #define APP_SWERVE_WHEEL_RATIO 0.5f         /* 2 個が逆向きに 1 rad ずつ回ると、タイヤが何 rad 回るか */
 #define APP_SWERVE_COUPLING 0.0f            /* モジュールだけが 1 rad 回ると、タイヤが何 rad 回るか */
 #define APP_SWERVE_ANGLE_KP 8.0f            /* 向きのずれ 1 rad → 向きを変える速さ 8 rad/s */
+#define APP_SWERVE_ANGLE_KD 0.0f            /* ブレーキ: 向きの変わる速さの差にかける(行き過ぎるとき 0.1〜0.5) */
+#define APP_SWERVE_ANGLE_FF 1.0f            /* 目標の向きの変わる速さを先に足す割合(0〜1。遅れるとき 1) */
 #define APP_SWERVE_MAX_STEER_RATE 6.0f      /* 向きを変える最大の速さ [rad/s] */
 #define APP_SWERVE_MAX_MOTOR_SPEED 25.0f    /* モーター 1 個の最大の速さ [rad/s](無負荷の最高速より少し下) */
 #define APP_SWERVE_TEST_WHEEL_SPEED 3.0f    /* TEST_MODE で前に転がす速さ [rad/s] */

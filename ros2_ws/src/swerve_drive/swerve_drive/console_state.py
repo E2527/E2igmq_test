@@ -198,6 +198,7 @@ class Snapshot:
     amcl_age: float = None              # AMCL が最後に位置を合わせてから何秒(動いていなければ None)
     amcl_spread: tuple = None           # そのときの位置のばらつき (m, rad)(標準偏差)
     last_fix: tuple = None              # 最後に直した量 (距離 m, 向き rad, 何秒前)。なければ None
+    params: dict = field(default_factory=dict)      # STM32 のゲイン {ID: {番号: (値, 結果, 何秒前)}}
     mux_source: str = None              # 今 /cmd_vel に通している指令('teleop' / 'nav' / ''。分からなければ None)
 
     @property
@@ -254,6 +255,7 @@ class ConsoleState:
         self._amcl = None               # (時刻, (m, rad))
         self._fix = None                # (時刻, 距離, 向き)
         self._odom_in_map_known = False     # TF の map → odom が 1 回でも届いた
+        self._params = {}               # (ID, 番号) → (値, 結果, 時刻)
 
     # ---- 書き込む(ROS のコールバックから) ----
 
@@ -326,6 +328,11 @@ class ConsoleState:
                 self._fix = (now, dist, dyaw)
             self._odom_in_map_known = self._odom_in_map_known or now is not None
             self._odom_in_map = (x, y, yaw)
+
+    def on_param_reply(self, dev_id, param_id, status, value, now):
+        """STM32 からゲインの読み書きの返事が届いた(stm<ID>/param_reply)."""
+        with self._lock:
+            self._params[(int(dev_id), int(param_id))] = (float(value), int(status), now)
 
     def on_amcl(self, spread_m, spread_rad, now):
         """AMCL が位置を合わせた(/amcl_pose)。spread は位置と向きのばらつき(標準偏差)."""
@@ -415,6 +422,8 @@ class ConsoleState:
             snap.nav_phase, snap.nav_text, snap.nav_remaining = self._nav
             snap.goal = self._goal
             snap.plan = list(self._plan)
+            for (dev_id, param_id), (value, status, t) in self._params.items():
+                snap.params.setdefault(dev_id, {})[param_id] = (value, status, now - t)
             if self._amcl is not None:
                 snap.amcl_age = now - self._amcl[0]
                 snap.amcl_spread = self._amcl[1]

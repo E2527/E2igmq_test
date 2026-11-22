@@ -1,8 +1,10 @@
 """
 CAN バスにつないだ複数の STM32 と ROS 2 トピックを中継するノード.
 
-  stm<ID>/command (std_msgs/Float32MultiArray) … モーター 2 個の目標速度 [rad/s]
-  stm<ID>/state   (std_msgs/Float32MultiArray) … モーター 2 個の実際の速度 [rad/s]
+  stm<ID>/command     (std_msgs/Float32MultiArray) … モーター 2 個の目標速度 [rad/s]
+  stm<ID>/state       (std_msgs/Float32MultiArray) … モーター 2 個の実際の速度 [rad/s]
+  stm<ID>/param       (std_msgs/Float32MultiArray) … ゲインの読み書き。[番号] で読む、[番号, 値] で書く
+  stm<ID>/param_reply (std_msgs/Float32MultiArray) … その返事 [番号, 結果, 今の値](protocol.py の PARAMS)
 
 デューティ比は STM32 がエンコーダで測った速度から PID で決める(firmware/stm32_can/motor.c)。
 
@@ -50,12 +52,18 @@ class StmBridge(Node):
         self.open_error = None                              # 開けなかった理由(開けたら None)
 
         self.state_pubs = {}
+        self.reply_pubs = {}
         for dev_id in self.device_ids:
             self.state_pubs[dev_id] = self.create_publisher(
                 Float32MultiArray, f'stm{dev_id}/state', 10)
+            self.reply_pubs[dev_id] = self.create_publisher(
+                Float32MultiArray, f'stm{dev_id}/param_reply', 10)
             self.create_subscription(
                 Float32MultiArray, f'stm{dev_id}/command',
                 lambda msg, i=dev_id: self.on_command(i, msg), 10)
+            self.create_subscription(
+                Float32MultiArray, f'stm{dev_id}/param',
+                lambda msg, i=dev_id: self.on_param(i, msg), 10)
 
         self.create_timer(1.0 / rate_hz, self.send_commands)
         self.create_timer(5.0, self.report)
@@ -80,6 +88,23 @@ class StmBridge(Node):
             self.get_logger().error(f'stm{dev_id}/command: {e}')
             return
         self.commands[dev_id] = (time.monotonic(), data)
+
+    def on_param(self, dev_id, msg):
+        """ゲインの読み書きの頼みごとを、すぐに STM32 に送る(返事は receive_loop で)."""
+        try:
+            data = protocol.request_from_list(list(msg.data))
+        except ValueError as e:
+            self.get_logger().error(f'stm{dev_id}/param: {e}')
+            return
+        bus = self.bus
+        if bus is None:
+            self.get_logger().warn(f'stm{dev_id}/param: {self.interface} が開いていません')
+            return
+        try:
+            with self.bus_lock:
+                bus.send(protocol.param_request_id(dev_id), data)
+        except OSError as e:
+            self.get_logger().warn(f'stm{dev_id}/param を送れませんでした: {e}')
 
     def open_bus(self):
         now = time.monotonic()
@@ -143,6 +168,15 @@ class StmBridge(Node):
                     self.close_bus(e)
                 continue
             if frame is None:
+                continue
+            reply_id = protocol.device_of(frame[0], protocol.PARAM_REPLY_BASE)
+            if reply_id in self.reply_pubs:
+                try:
+                    values = protocol.reply_to_list(frame[1])
+                except ValueError as e:
+                    self.get_logger().warn(f'stm{reply_id}: {e}', throttle_duration_sec=5.0)
+                    continue
+                self.reply_pubs[reply_id].publish(Float32MultiArray(data=values))
                 continue
             dev_id = protocol.device_of(frame[0], protocol.STATE_BASE)
             if dev_id not in self.state_pubs:

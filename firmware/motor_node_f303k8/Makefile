@@ -38,6 +38,8 @@ C_SOURCES = \
 	$(COMMON)/motor.c \
 	$(COMMON)/speed_pid.c \
 	$(COMMON)/swerve_module.c \
+	$(COMMON)/params.c \
+	$(COMMON)/control_params.c \
 	$(DEVICE)/Source/Templates/system_stm32f3xx.c \
 	$(addprefix $(HAL)/Src/stm32f3xx_hal, .c _cortex.c _rcc.c _rcc_ex.c _gpio.c _dma.c _flash.c \
 		_flash_ex.c _pwr.c _pwr_ex.c _tim.c _tim_ex.c _can.c _exti.c _uart.c _uart_ex.c)

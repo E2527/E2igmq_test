@@ -2,13 +2,15 @@
 #   make -C firmware/stm32_can/test
 CC ?= gcc
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Wshadow -O1 -g -I hal_stub -I ..
-SRCS = test_main.c hal_stub.c ../can_node.c ../uart_node.c ../speed_pid.c ../motor.c ../swerve_module.c
+SRCS = test_main.c hal_stub.c ../can_node.c ../uart_node.c ../speed_pid.c ../motor.c ../swerve_module.c \
+	../params.c ../control_params.c
 
 .PHONY: test clean
 test: test_firmware
 	./test_firmware
 
-test_firmware: $(SRCS) hal_stub/main.h ../can_node.h ../uart_node.h ../speed_pid.h ../motor.h ../swerve_module.h
+test_firmware: $(SRCS) hal_stub/main.h ../can_node.h ../uart_node.h ../speed_pid.h ../motor.h ../swerve_module.h \
+	../params.h ../control_params.h
 	$(CC) $(CFLAGS) -o $@ $(SRCS) -lm
 
 clean:

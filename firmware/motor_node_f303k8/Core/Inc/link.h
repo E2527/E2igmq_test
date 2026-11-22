@@ -15,11 +15,13 @@
 #define link_get_command uart_node_get_command
 #define link_set_state uart_node_set_state
 #define link_update uart_node_update
+#define link_set_params uart_node_set_params
 #else
 #define link_init() can_node_init(&hcan, APP_NODE_ID)
 #define link_get_command can_node_get_command
 #define link_set_state can_node_set_state
 #define link_update can_node_update
+#define link_set_params can_node_set_params
 #endif
 
 #endif /* LINK_H */

@@ -7,7 +7,9 @@
 #include <string.h>
 
 #include "can_node.h"
+#include "control_params.h"
 #include "motor.h"
+#include "params.h"
 #include "speed_pid.h"
 #include "swerve_module.h"
 #include "uart_node.h"
@@ -134,6 +136,172 @@ static void test_uart_node(void)
     huart.gState = HAL_UART_STATE_READY;
     uart_node_update();
     CHECK(stub_uart_tx_count == 2);
+}
+
+/* ---------------- params(ゲインを通信で読み書きする) ---------------- */
+
+static float g_param_value;
+static float get_value(void *ctx)
+{
+    (void)ctx;
+    return g_param_value;
+}
+static void set_value(void *ctx, float v)
+{
+    (void)ctx;
+    g_param_value = v;
+}
+
+static void write_request(uint8_t out[8], uint8_t id, float value)
+{
+    memset(out, 0, 8);
+    out[0] = id;
+    memcpy(&out[4], &value, sizeof(value));
+}
+
+static float reply_value(const uint8_t reply[8])
+{
+    float v;
+    memcpy(&v, &reply[4], sizeof(v));
+    return v;
+}
+
+static void test_params_handle(void)
+{
+    const param_entry_t entries[] = {
+        {5, 0.0f, 2.0f, get_value, set_value},
+        {6, 0.0f, 0.0f, get_value, NULL},           /* 読むだけ */
+    };
+    const param_table_t table = {entries, 2, NULL};
+    uint8_t req[8], reply[8];
+    g_param_value = 1.5f;
+
+    params_handle(&table, (const uint8_t[]){5}, 1, reply);         /* 読む */
+    CHECK(reply[0] == 5 && reply[1] == PARAM_OK && reply_value(reply) == 1.5f);
+    write_request(req, 5, 0.25f);                                  /* 書く */
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_OK && g_param_value == 0.25f && reply_value(reply) == 0.25f);
+    write_request(req, 5, 3.0f);                                   /* 範囲の外は書かない */
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_OUT_OF_RANGE && g_param_value == 0.25f && reply_value(reply) == 0.25f);
+    write_request(req, 5, NAN);                                    /* NaN は書かない */
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_BAD_REQUEST && g_param_value == 0.25f);
+    write_request(req, 6, 1.0f);
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_READ_ONLY);
+    params_handle(&table, (const uint8_t[]){9}, 1, reply);         /* ない番号 */
+    CHECK(reply[0] == 9 && reply[1] == PARAM_UNKNOWN && reply_value(reply) == 0.0f);
+    params_handle(&table, req, 3, reply);                          /* 長さがおかしい */
+    CHECK(reply[1] == PARAM_BAD_REQUEST);
+    params_handle(NULL, (const uint8_t[]){5}, 1, reply);           /* 一覧がない基板 */
+    CHECK(reply[1] == PARAM_UNKNOWN);
+}
+
+static void test_param_queue(void)
+{
+    param_queue_t q;
+    uint8_t data[8], len;
+    param_queue_init(&q);
+    CHECK(!param_queue_peek(&q, data, &len));
+    int pushed = 0;
+    for (int i = 0; i < 20; i++) {
+        pushed += param_queue_push(&q, (const uint8_t[]){(uint8_t)i}, 1);
+    }
+    CHECK(pushed == PARAM_QUEUE_SIZE - 1);                         /* いっぱいになったら捨てる */
+    CHECK(param_queue_peek(&q, data, &len) && data[0] == 0 && len == 1);
+    CHECK(param_queue_peek(&q, data, &len) && data[0] == 0);       /* 見るだけでは減らない */
+    param_queue_drop(&q);
+    CHECK(param_queue_peek(&q, data, &len) && data[0] == 1);
+}
+
+static void test_control_params(void)
+{
+    speed_pid_t pid[2] = {{.kp = 0.02f, .ki = 0.5f, .kff = 0.03f, .max_duty = 0.95f},
+                          {.kp = 0.02f, .ki = 0.5f, .kff = 0.03f, .max_duty = 0.95f}};
+    swerve_config_t cfg = {.steer_ratio = 0.25f, .wheel_ratio = 0.5f, .angle_kp = 8.0f,
+                           .max_steer_rate = 6.0f, .max_motor_speed = 25.0f};
+    swerve_module_t module;
+    swerve_init(&module, &cfg, 0.0f);
+    control_params_ctx_t ctx = {.pid = {&pid[0], &pid[1]}, .module = &module};
+    param_table_t table;
+    control_params_init(&table, &ctx);
+    uint8_t req[8], reply[8];
+
+    params_handle(&table, (const uint8_t[]){PARAM_ID_FIRMWARE}, 1, reply);
+    CHECK(reply[1] == PARAM_OK && reply_value(reply) == CONTROL_FIRMWARE_SWERVE);
+    write_request(req, PARAM_ID_SPEED_KP, 0.04f);                  /* 2 個のモーターにそろえて書く */
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_OK && pid[0].kp == 0.04f && pid[1].kp == 0.04f);
+    write_request(req, PARAM_ID_ANGLE_KD, 0.3f);
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_OK && module.cfg.angle_kd == 0.3f);
+    write_request(req, PARAM_ID_ANGLE, 0.0f);                      /* 「今の向きを 0 にする」 */
+    swerve_set_angle(&module, 1.0f);
+    params_handle(&table, req, 8, reply);
+    CHECK(reply[1] == PARAM_OK && module.angle == 0.0f);
+
+    control_params_ctx_t motors = {.pid = {&pid[0], &pid[1]}, .module = NULL};
+    control_params_init(&table, &motors);                          /* モーター 2 個の版には */
+    params_handle(&table, (const uint8_t[]){PARAM_ID_ANGLE_KP}, 1, reply);
+    CHECK(reply[1] == PARAM_UNKNOWN);                              /* 向きの設定はない */
+    params_handle(&table, (const uint8_t[]){PARAM_ID_FIRMWARE}, 1, reply);
+    CHECK(reply_value(reply) == CONTROL_FIRMWARE_MOTORS);
+}
+
+static void test_can_node_params(void)
+{
+    static CAN_HandleTypeDef hcan;
+    g_param_value = 2.0f;
+    const param_entry_t entries[] = {{1, 0.0f, 10.0f, get_value, set_value}};
+    const param_table_t table = {entries, 1, NULL};
+    stub_tick = 1000;
+    CHECK(can_node_init(&hcan, 1) == HAL_OK);
+    CHECK(stub_can_filters[1].FilterBank == 1 && stub_can_filters[1].FilterIdHigh == (0x301u << 5));
+    can_node_set_params(&table);
+    stub_can_tx_count = 0;
+    stub_can_tx_free = 3;
+    uint8_t req[8];
+    write_request(req, 1, 4.5f);
+    stub_can_receive(&hcan, 0x301, CAN_ID_STD, req, 8);           /* 書く頼みごと */
+    stub_can_receive(&hcan, 0x302, CAN_ID_STD, req, 8);           /* 他の基板宛ては無視 */
+    can_node_update();
+    CHECK(stub_can_tx_count == 1 && g_param_value == 4.5f);       /* 1 つだけ処理して返事 */
+    CHECK(stub_can_tx_header.StdId == 0x401);
+    stub_can_tx_count = 0;
+    stub_can_tx_free = 0;                                          /* 送れないときは */
+    stub_can_receive(&hcan, 0x301, CAN_ID_STD, (const uint8_t[]){1}, 1);
+    can_node_update();
+    CHECK(stub_can_tx_count == 0);
+    stub_can_tx_free = 3;                                          /* 次の回に送る */
+    stub_tick = 1001;
+    can_node_update();
+    CHECK(stub_can_tx_count == 1 && stub_can_tx_header.StdId == 0x401 && stub_can_tx_header.DLC == 8);
+    CHECK(stub_can_tx_data[0] == 1 && stub_can_tx_data[1] == PARAM_OK && reply_value(stub_can_tx_data) == 4.5f);
+}
+
+static void test_uart_node_params(void)
+{
+    static UART_HandleTypeDef huart = {.gState = HAL_UART_STATE_READY};
+    g_param_value = 0.5f;
+    const param_entry_t entries[] = {{1, 0.0f, 10.0f, get_value, set_value}};
+    const param_table_t table = {entries, 1, NULL};
+    uint8_t frame[32];
+    /* Pi 側の can_bus.encode_serial_frame(0x301, pack_param_request(1, 0.25)) と同じ */
+    size_t len = from_hex("aa55010308010000000000803eb40b", frame);
+    stub_tick = 2000;
+    CHECK(uart_node_init(&huart, 1) == HAL_OK);
+    uart_node_set_params(&table);
+    stub_uart_tx_count = 0;
+    stub_uart_receive(&huart, frame, (uint16_t)len);
+    uart_node_update();                                            /* 返事を状態より先に送る */
+    CHECK(g_param_value == 0.25f);
+    CHECK(stub_uart_tx_count == 1 && stub_uart_tx_len == 15);
+    CHECK(stub_uart_tx[2] == 0x01 && stub_uart_tx[3] == 0x04 && stub_uart_tx[4] == 8);   /* 0x401 */
+    CHECK(stub_uart_tx[5] == 1 && stub_uart_tx[6] == PARAM_OK && reply_value(&stub_uart_tx[5]) == 0.25f);
+    stub_tick = 2010;
+    uart_node_update();                                            /* 次は状態 */
+    CHECK(stub_uart_tx_count == 2 && stub_uart_tx[2] == 0x01 && stub_uart_tx[3] == 0x02);
 }
 
 /* ---------------- speed_pid ---------------- */
@@ -305,16 +473,16 @@ static void test_swerve_mix_and_measure(void)
     swerve_module_t s = make_swerve(0.0f);
     float m1, m2;
 
-    swerve_mix(&s, 0.0f, 10.0f, &m1, &m2);                        /* 向きが合っていれば */
+    swerve_mix(&s, 0.0f, 10.0f, 0.0f, 0.001f, &m1, &m2);  /* 向きが合っていれば */
     CHECK(near(m1, -m2, 1e-5f));                                  /* 逆向きに回して(向きは変えない) */
     CHECK(near(swerve_wheel_speed(&s, m1, m2), 10.0f, 1e-4f));    /* タイヤが目標の速さ */
 
-    swerve_mix(&s, 0.3f, 0.0f, &m1, &m2);                         /* 向きだけ変えるときは */
+    swerve_mix(&s, 0.3f, 0.0f, 0.0f, 0.001f, &m1, &m2);  /* 向きだけ変えるときは */
     CHECK(near(m1, m2, 1e-5f) && m1 > 0.0f);                      /* 同じ向きに回して */
     CHECK(near(swerve_wheel_speed(&s, m1, m2), 0.0f, 1e-4f));     /* タイヤは回さない */
     CHECK(near(0.25f * (m1 + m2) * 0.5f, 3.0f, 1e-4f));           /* 速さ = kp × ずれ = 3 rad/s */
 
-    swerve_mix(&s, 2.0f, 0.0f, &m1, &m2);                         /* 大きくずれていても */
+    swerve_mix(&s, 2.0f, 0.0f, 0.0f, 0.001f, &m1, &m2);  /* 大きくずれていても */
     CHECK(near(0.25f * (m1 + m2) * 0.5f, 6.0f, 1e-4f));           /* max_steer_rate で止める */
 }
 
@@ -323,13 +491,13 @@ static void test_swerve_shortest_turn_and_cosine(void)
     swerve_module_t s = make_swerve(0.0f);
     float m1, m2;
     swerve_set_angle(&s, 170.0f * PI_F / 180.0f);
-    swerve_mix(&s, -170.0f * PI_F / 180.0f, 0.0f, &m1, &m2);      /* 170° → -170° は */
+    swerve_mix(&s, -170.0f * PI_F / 180.0f, 0.0f, 0.0f, 0.001f, &m1, &m2);  /* 170° → -170° は */
     CHECK(m1 > 0.0f && m2 > 0.0f);                                /* 反時計回りに 20° だけ回る */
 
     swerve_set_angle(&s, 0.0f);
-    swerve_mix(&s, PI_F / 3.0f, 10.0f, &m1, &m2);                 /* 60° ずれているうちは */
+    swerve_mix(&s, PI_F / 3.0f, 10.0f, 0.0f, 0.001f, &m1, &m2);  /* 60° ずれているうちは */
     CHECK(near(swerve_wheel_speed(&s, m1, m2), 5.0f, 1e-3f));     /* タイヤは cos 60° = 半分の速さ */
-    swerve_mix(&s, 2.0f, 10.0f, &m1, &m2);                        /* 90° 以上ずれていれば */
+    swerve_mix(&s, 2.0f, 10.0f, 0.0f, 0.001f, &m1, &m2);  /* 90° 以上ずれていれば */
     CHECK(near(swerve_wheel_speed(&s, m1, m2), 0.0f, 1e-3f));     /* タイヤは止める */
 }
 
@@ -338,7 +506,7 @@ static void test_swerve_saturation_prefers_steering(void)
     swerve_module_t s = make_swerve(0.0f);
     s.cfg.max_motor_speed = 30.0f;
     float m1, m2;
-    swerve_mix(&s, 0.1f, 100.0f, &m1, &m2);                       /* 両方とも全力では回せないとき */
+    swerve_mix(&s, 0.1f, 100.0f, 0.0f, 0.001f, &m1, &m2);  /* 両方とも全力では回せないとき */
     CHECK(fabsf(m1) <= 30.0f + 1e-4f && fabsf(m2) <= 30.0f + 1e-4f);
     CHECK(near(0.25f * (m1 + m2) * 0.5f, 1.0f, 1e-4f));           /* 向きを変える分は守り */
     CHECK(swerve_wheel_speed(&s, m1, m2) > 0.0f);                 /* 残りでタイヤを回す */
@@ -357,7 +525,7 @@ static void test_swerve_angle_tracking_and_coupling(void)
 
     swerve_module_t c = make_swerve(0.4f);                        /* 向きを変えるとタイヤも回る機構 */
     float m1, m2;
-    swerve_mix(&c, 0.3f, 0.0f, &m1, &m2);                         /* 向きだけ変えるとき */
+    swerve_mix(&c, 0.3f, 0.0f, 0.0f, 0.001f, &m1, &m2);  /* 向きだけ変えるとき */
     CHECK(near(swerve_wheel_speed(&c, m1, m2), 0.0f, 1e-4f));     /* その分を打ち消して、タイヤは止まる */
 }
 
@@ -369,13 +537,58 @@ static void test_swerve_closed_loop(void)
     const float dt = 0.001f, gain = dt / 0.02f;
     for (int i = 0; i < 1500; i++) {
         float t1, t2;
-        swerve_mix(&s, PI_F / 2.0f, 8.0f, &t1, &t2);              /* 90° を向いて 8 rad/s */
+        swerve_mix(&s, PI_F / 2.0f, 8.0f, 0.0f, 0.001f, &t1, &t2);  /* 90° を向いて 8 rad/s */
         w1 += gain * (t1 - w1);
         w2 += gain * (t2 - w2);
         swerve_update_angle(&s, w1 * dt, w2 * dt);
     }
     CHECK(near(s.angle, PI_F / 2.0f, 0.01f));                     /* 向きが合い */
     CHECK(near(swerve_wheel_speed(&s, w1, w2), 8.0f, 0.1f));      /* タイヤも目標の速さ */
+}
+
+static void test_swerve_feedforward_and_jumps(void)
+{
+    /* 目標の向きが 1 rad/s で回り続けるとき、モーターが 20 ms 遅れで追いつくとして、遅れを比べる */
+    float lag[2];
+    for (int k = 0; k < 2; k++) {
+        swerve_module_t s = make_swerve(0.0f);
+        s.cfg.angle_kp = 5.0f;
+        s.cfg.angle_ff = k == 0 ? 0.0f : 1.0f;
+        float w1 = 0.0f, w2 = 0.0f, target = 0.0f;
+        const float dt = 0.001f, gain = dt / 0.02f;
+        for (int i = 0; i < 2000; i++) {
+            if (i % 20 == 0) {
+                target = (float)i * dt;                            /* Pi の指令は 20 ms ごと */
+            }
+            float t1, t2;
+            swerve_mix(&s, target, 0.0f, swerve_steer_rate(&s, w1, w2), dt, &t1, &t2);
+            w1 += gain * (t1 - w1);
+            w2 += gain * (t2 - w2);
+            swerve_update_angle(&s, w1 * dt, w2 * dt);
+        }
+        lag[k] = swerve_wrap(target - s.angle);
+    }
+    CHECK(lag[0] > 0.15f);                                         /* P だけだと 1/kp = 0.2 rad 遅れる */
+    CHECK(fabsf(lag[1]) < 0.06f);                                  /* 先に足すと、ほとんど遅れない */
+
+    swerve_module_t s = make_swerve(0.0f);
+    s.cfg.angle_ff = 1.0f;
+    float m1, m2;
+    swerve_mix(&s, 0.0f, 0.0f, 0.0f, 0.001f, &m1, &m2);
+    swerve_mix(&s, PI_F, 0.0f, 0.0f, 0.001f, &m1, &m2);              /* 180° の飛び(反転)は */
+    CHECK(s.target_rate == 0.0f);                                  /* 動きとして数えない */
+    swerve_mix(&s, PI_F + 0.01f, 0.0f, 0.0f, 0.001f, &m1, &m2);
+    CHECK(s.target_rate > 0.0f);
+    swerve_reset_target(&s);                                       /* 止まったら */
+    CHECK(s.target_rate == 0.0f && !s.has_target);                 /* 0 から求め直す */
+
+    swerve_module_t d = make_swerve(0.0f);                         /* D: 今速く回っているほど */
+    d.cfg.angle_kd = 0.5f;
+    swerve_mix(&d, 0.3f, 0.0f, 0.0f, 0.001f, &m1, &m2);
+    float still = swerve_steer_rate(&d, m1, m2);
+    swerve_reset_target(&d);
+    swerve_mix(&d, 0.3f, 0.0f, 4.0f, 0.001f, &m1, &m2);
+    CHECK(swerve_steer_rate(&d, m1, m2) < still - 1.0f);           /* ブレーキがかかる */
 }
 
 int main(void)
@@ -396,6 +609,12 @@ int main(void)
         {"swerve_saturation_prefers_steering", test_swerve_saturation_prefers_steering},
         {"swerve_angle_tracking_and_coupling", test_swerve_angle_tracking_and_coupling},
         {"swerve_closed_loop", test_swerve_closed_loop},
+        {"swerve_feedforward_and_jumps", test_swerve_feedforward_and_jumps},
+        {"params_handle", test_params_handle},
+        {"param_queue", test_param_queue},
+        {"control_params", test_control_params},
+        {"can_node_params", test_can_node_params},
+        {"uart_node_params", test_uart_node_params},
     };
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
         int before = g_failures;

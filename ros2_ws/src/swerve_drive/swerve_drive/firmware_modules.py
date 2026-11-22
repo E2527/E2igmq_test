@@ -8,6 +8,7 @@ fake_modules(簡単な真似)の代わりに使う。ファームウェアの計
     stm<ID>/command [向き rad, タイヤの速さ rad/s] を受け取り、
     stm<ID>/state   [向き, タイヤの速さ](ファームウェアが Pi に返すのと同じ値)を返す
     stm<ID>/true_state [本当の向き, 本当のタイヤの速さ](模型の値。ギア比の設定の確認用)
+    stm<ID>/param / param_reply … ゲインの読み書き(実機の stm_bridge と同じ。ロボットコンソールの「調整」タブ)
 
     ros2 launch swerve_drive swerve.launch.py sim:=true firmware:=true console:=true
 """
@@ -20,6 +21,7 @@ from std_msgs.msg import Float32MultiArray
 
 from . import firmware_sim
 from .sim_faults import SimFaults
+from .sim_params import serve_params
 
 
 class FirmwareModules(Node):
@@ -51,6 +53,7 @@ class FirmwareModules(Node):
             self.create_subscription(
                 Float32MultiArray, f'stm{dev_id}/command',
                 lambda msg, i=i: self.on_command(i, msg), 10)
+        serve_params(self, dict(zip(self.ids, self.sims)))   # ゲインの読み書き
         self.faults = SimFaults(self)       # シミュレーターの「わざと故障させる」
         self.period = 1.0 / rate_hz
         self.create_timer(self.period, self.step)
