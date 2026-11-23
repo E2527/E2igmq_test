@@ -51,6 +51,7 @@ from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtWidgets import (QAction, QApplication, QButtonGroup, QComboBox, QGroupBox,
                              QHBoxLayout, QLabel, QMainWindow, QPushButton, QRadioButton,
                              QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
+from rcl_interfaces.msg import Log
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
@@ -157,6 +158,8 @@ class ConsoleNode(Node):
         # Nav2 の、道に沿って走る部品を選ぶ(標準のビヘイビアツリーの ControllerSelector が読む)
         self.controller_pub = self.create_publisher(String, 'controller_selector', MAP_QOS)
         self.create_subscription(Path, 'plan', self.on_plan, 10)
+        # Nav2 の部品の警告・エラー(なぜ進まないのかを「自動操縦」タブに出す)
+        self.create_subscription(Log, '/rosout', self.on_rosout, 50)
         self.create_subscription(String, 'cmd_vel_mux/active',
                                  lambda msg: self.state.on_mux(msg.data, time.monotonic()), 10)
         self.initial_pub = self.create_publisher(PoseWithCovarianceStamped, 'initialpose', 10)
@@ -237,6 +240,12 @@ class ConsoleNode(Node):
         cov = msg.pose.covariance
         spread_m = math.sqrt(max(0.0, (cov[0] + cov[7]) / 2.0))
         self.state.on_amcl(spread_m, math.sqrt(max(0.0, cov[35])), time.monotonic())
+
+    NAV_NODES = ('controller_server', 'planner_server', 'bt_navigator', 'behavior_server', 'amcl')
+
+    def on_rosout(self, msg):
+        if msg.level >= Log.WARN and msg.name.split('.')[-1] in self.NAV_NODES:
+            self.state.on_nav_log(msg.name.split('.')[-1], msg.msg, time.monotonic())
 
     def on_plan(self, msg):
         # 道は地図の座標(Nav2 の global_frame)で届く
@@ -384,7 +393,8 @@ class ConsoleNode(Node):
         if serial == self.goal_serial:
             fb = feedback.feedback
             self.state.on_nav_feedback(fb.distance_remaining,
-                                       getattr(fb, 'number_of_poses_remaining', None))
+                                       getattr(fb, 'number_of_poses_remaining', None),
+                                       getattr(fb, 'number_of_recoveries', None))
 
     def on_result(self, serial, future):
         if serial != self.goal_serial:
@@ -660,7 +670,8 @@ class ConsoleWindow(QMainWindow):
         self.update_amcl(snap)
         key = (snap.nav_ready, snap.nav_phase, snap.nav_text,
                None if snap.nav_remaining is None else round(snap.nav_remaining, 1),
-               snap.nav_points_left, snap.mux_source)
+               snap.nav_points_left, snap.mux_source, snap.nav_recoveries,
+               tuple((name, text, int(age) // 5) for age, name, text in snap.nav_logs))
         if key == self.nav_key:         # 変わったときだけ書き直す
             return
         self.nav_key = key
@@ -682,6 +693,11 @@ class ConsoleWindow(QMainWindow):
         else:
             source = sources.get(snap.mux_source, snap.mux_source)
         lines.append(f'足回りに通している指令: {source}')
+        if snap.navigating and snap.nav_recoveries:
+            lines.append(f'行き詰まって、回る・待つ・下がるをした回数: {snap.nav_recoveries}')
+        if snap.nav_logs:
+            lines.append('Nav2 の警告(新しい順):')
+            lines += [f'  {age:.0f} 秒前 {name}: {text[:90]}' for age, name, text in snap.nav_logs]
         self.nav_detail.setText('\n'.join(lines))
 
     def make_graph_tab(self):

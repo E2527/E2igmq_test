@@ -108,6 +108,9 @@ controller_server:
       yaw_goal_tolerance: 0.1       # [rad](約 6°)
 
     # MPPI: 少しずつ違う速さで動いたときの動きを、たくさん(2000 通り)試して、いちばん良いものを選ぶ
+    # GoalCritic / PathFollowCritic / CostCritic の「ゴールの近く」は、道のりではなく、ゴールまでのまっすぐの
+    # 距離で決まる。経由地点を通る道は途中でゴールの近くを通ることがあるので、小さくしておく(大きいと、
+    # 経由地点を無視してゴールに直接向かおうとして、障害物の手前で止まる)
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       motion_model: "Omni"          # 横にも動ける
@@ -144,7 +147,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        threshold_to_consider: 1.4
+        threshold_to_consider: 0.6  # [m] ゴールまでのまっすぐの距離がこれ以下で、道に沿うのをやめてゴールに直接向かう
       GoalAngleCritic:
         enabled: true
         cost_power: 1
@@ -158,7 +161,7 @@ controller_server:
         critical_cost: 300.0
         consider_footprint: false
         collision_cost: 1000000.0
-        near_goal_distance: 1.0
+        near_goal_distance: 0.5    # [m] ゴールのこの距離以内では、障害物のそばも通る
         trajectory_point_step: 2
       PathAlignCritic:
         enabled: true
@@ -174,7 +177,7 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         offset_from_furthest: 5
-        threshold_to_consider: 1.4
+        threshold_to_consider: 0.6  # [m] GoalCritic と同じに
       TwirlingCritic:               # 走りながら、むだにくるくる回らないように
         enabled: true
         twirling_cost_power: 1
@@ -220,7 +223,7 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 5.0
-        threshold_to_consider: 1.4
+        threshold_to_consider: 0.6  # [m] ゴールまでのまっすぐの距離がこれ以下で、道に沿うのをやめてゴールに直接向かう
       GoalAngleCritic:              # ゴールまでこれだけの距離に来たら、ゴールの向きに近づける
         enabled: true
         cost_power: 1
@@ -234,7 +237,7 @@ controller_server:
         critical_cost: 300.0
         consider_footprint: false
         collision_cost: 1000000.0
-        near_goal_distance: 1.0
+        near_goal_distance: 0.5    # [m] ゴールのこの距離以内では、障害物のそばも通る
         trajectory_point_step: 2
       PathAlignCritic:
         enabled: true
@@ -250,7 +253,7 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         offset_from_furthest: 5
-        threshold_to_consider: 1.4
+        threshold_to_consider: 0.6  # [m] GoalCritic と同じに
 
 # コストマップ: 地図の壁を、ロボットの半径だけ太らせて塗ったもの。道はここで探す
 #   static_layer    … フィールドの地図(/map。通れるか用。LiDAR に映らない低い物も入っている)

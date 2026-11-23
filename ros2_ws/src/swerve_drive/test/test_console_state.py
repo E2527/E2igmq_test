@@ -242,6 +242,23 @@ def test_route_and_points_left():
     assert state.snapshot(0.0).route == [] and state.snapshot(0.0).goal is None
 
 
+def test_nav_logs_and_recoveries():
+    state = cs.ConsoleState()
+    state.set_nav(cs.NAV_SENDING, goal=(1.0, 0.0, 0.0))
+    state.set_nav(cs.NAV_RUNNING)
+    state.on_nav_feedback(2.0, None, 3)
+    assert state.snapshot(0.0).nav_recoveries == 3
+    state.on_nav_log('controller_server', 'Failed to make progress', 1.0)
+    state.on_nav_log('controller_server', 'Failed to make progress', 2.0)     # 同じ文はまとめる
+    state.on_nav_log('planner_server', 'GridBased: failed to create plan', 3.0)
+    logs = state.snapshot(4.0).nav_logs
+    assert [entry[1] for entry in logs] == ['planner_server', 'controller_server']   # 新しい順
+    assert logs[1][0] == pytest.approx(2.0)
+    assert state.snapshot(100.0).nav_logs == []                    # 古い警告は出さない
+    state.set_nav(cs.NAV_SENDING, goal=(2.0, 0.0, 0.0))            # 新しいゴールで数え直す
+    assert state.snapshot(4.0).nav_recoveries == 0
+
+
 def test_mux_source_times_out():
     state = cs.ConsoleState()
     assert state.snapshot(0.0).mux_source is None

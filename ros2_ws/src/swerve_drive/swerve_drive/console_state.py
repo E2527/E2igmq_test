@@ -28,6 +28,8 @@ HISTORY_S = 20.0        # グラフに残す長さ [s]
 RATE_WINDOW_S = 1.0     # 通信の回数を数える長さ [s]
 FIX_MIN_M = 0.002       # map → odom がこれ以上変わったら、AMCL が位置を直したとみなす [m]
 FIX_MIN_RAD = math.radians(0.2)
+NAV_LOG_MAX = 6         # 自動操縦の警告を、新しいものから何個まで残すか
+NAV_LOG_S = 60.0        # 何秒前までの警告を出すか
 MUX_TIMEOUT_S = 1.0     # 指令のまとめ役(cmd_vel_mux)の知らせがこれ以上来なければ、分からないとみなす
 
 # 自動操縦の進み具合(nav_phase)
@@ -200,6 +202,8 @@ class Snapshot:
     goal: tuple = None                  # 自動操縦のゴール(地図の座標。なければ None)
     route: list = field(default_factory=list)       # 自動操縦の経由地点 [(x, y, 向き)](最後がゴール)
     nav_points_left: int = None         # まだ通っていない点の数(分からなければ None)
+    nav_recoveries: int = 0             # 行き詰まって、回る・待つ・下がるをした回数(今のゴールで)
+    nav_logs: list = field(default_factory=list)    # Nav2 の警告 [(何秒前, 部品の名前, 文)](新しい順)
     plan: list = field(default_factory=list)        # 自動操縦が探した道 [(x, y)](地図の座標)
     amcl_age: float = None              # AMCL が最後に位置を合わせてから何秒(動いていなければ None)
     amcl_spread: tuple = None           # そのときの位置のばらつき (m, rad)(標準偏差)
@@ -257,6 +261,8 @@ class ConsoleState:
         self._goal = None
         self._route = []
         self._points_left = None
+        self._recoveries = 0
+        self._nav_logs = deque(maxlen=NAV_LOG_MAX)
         self._plan = []
         self._mux = None
         self._mux_time = None
@@ -377,6 +383,8 @@ class ConsoleState:
             self._nav = (phase, text, remaining)
             if remaining is None:
                 self._points_left = None
+            if phase == NAV_SENDING:
+                self._recoveries = 0
             if goal is not False:
                 route = [] if goal is None else (
                     [tuple(goal)] if not isinstance(goal[0], (tuple, list)) else
@@ -386,12 +394,22 @@ class ConsoleState:
             if phase in (NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED):
                 self._plan = []                 # 終わったら、道の表示を消す
 
-    def on_nav_feedback(self, remaining, points_left=None):
-        """走っている途中の知らせ(ゴールまでの残りの距離 [m]、まだ通っていない点の数)."""
+    def on_nav_feedback(self, remaining, points_left=None, recoveries=None):
+        """走っている途中の知らせ(ゴールまでの残りの距離 [m]、まだ通っていない点の数、行き詰まった回数)."""
         with self._lock:
             if self._nav[0] == NAV_RUNNING:
                 self._nav = (NAV_RUNNING, self._nav[1], float(remaining))
                 self._points_left = None if points_left is None else int(points_left)
+                if recoveries is not None:
+                    self._recoveries = int(recoveries)
+
+    def on_nav_log(self, name, text, now):
+        """Nav2 の部品が出した警告・エラー(/rosout)."""
+        with self._lock:
+            if self._nav_logs and self._nav_logs[-1][1:] == (name, text):
+                self._nav_logs[-1] = (now, name, text)      # 同じ文が続くときは、1 つにまとめる
+            else:
+                self._nav_logs.append((now, name, text))
 
     def on_plan(self, points):
         """自動操縦が探した道(/plan。地図の座標の [(x, y)])."""
@@ -442,6 +460,9 @@ class ConsoleState:
             snap.goal = self._goal
             snap.route = list(self._route)
             snap.nav_points_left = self._points_left
+            snap.nav_recoveries = self._recoveries
+            snap.nav_logs = [(now - t, name, text) for t, name, text in reversed(self._nav_logs)
+                             if now - t < NAV_LOG_S]
             snap.plan = list(self._plan)
             for (dev_id, param_id), (value, status, t) in self._params.items():
                 snap.params.setdefault(dev_id, {})[param_id] = (value, status, now - t)
