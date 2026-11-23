@@ -124,7 +124,7 @@ ros2 launch swerve_drive swerve.launch.py sim:=true console:=true
 
 **地図と LiDAR**:`./sim.sh` では、フィールドの地図(`field_map` の `fields/example.yaml`)と、地図から計算するシミュレーション用の LiDAR(`fake_lidar`)も起動します。ほかのフィールドにするときは `ros2 launch swerve_drive swerve.launch.py sim:=true console:=true field:=my_field`。実機では、地図のノードと本物の LiDAR が出す `/map` と `/scan` をそのまま表示します(なければ、その表示が出ないだけです)。自分の位置を合わせる部品(AMCL)が `map → odom` の TF を出すと、地図の上の位置もそれに合わせて表示します。
 
-**自動操縦**:`./sim.sh nav` で Nav2 も起動すると、「自動操縦」タブで地図をクリックした場所まで、道を探して走ります。詳しくは [robot_nav の README](../robot_nav/README.md)。
+**自動操縦**:`./sim.sh nav` で Nav2 も起動すると、「自動操縦」タブで地図をクリックして経由地点を並べ(最後の点がゴール)、Enter で走ります。詳しくは [robot_nav の README](../robot_nav/README.md)。
 
 **操縦**:このウィンドウを選んだまま、キーを押している間だけ動きます。
 

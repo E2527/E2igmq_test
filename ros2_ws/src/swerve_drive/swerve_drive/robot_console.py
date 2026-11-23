@@ -45,7 +45,7 @@ import traceback
 from action_msgs.msg import GoalStatus
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtWidgets import (QAction, QApplication, QButtonGroup, QComboBox, QGroupBox,
@@ -148,6 +148,7 @@ class ConsoleNode(Node):
         self.create_timer(1.0, self.discover_stm)
         # 自動操縦(Nav2)。起動していなければ、ゴールを送れないだけ
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.through_client = ActionClient(self, NavigateThroughPoses, 'navigate_through_poses')
         self.robot_radius = nav_robot_radius()  # ゴールが障害物に近すぎないかを見るのに使う
         self.goal_handle = None
         self.goal_serial = 0            # 送ったゴールの番号(古いゴールの知らせを見分ける)
@@ -304,44 +305,64 @@ class ConsoleNode(Node):
     # ---- 自動操縦(ゴールを送るのは画面のスレッド、知らせは ROS のスレッド) ----
 
     def send_goal(self, x, y, yaw, turn=cs.TURN_WHILE_MOVING):
-        """
-        Nav2 にゴールを送る。走っている途中なら、新しいゴールに変わる.
+        """Nav2 にゴールを 1 つ送る(send_route の、点が 1 つのとき)."""
+        return self.send_route([(x, y, yaw)], turn)
 
-        turn … 向きをいつ変えるか(cs.TURN_WHILE_MOVING / cs.TURN_ON_ARRIVAL)
-        """
-        if not self.nav_client.server_is_ready():
-            self.state.set_nav(cs.NAV_FAILED, '自動操縦(Nav2)が起動していません')
-            return
-        snap = self.state.snapshot(time.monotonic(), with_history=False)
+    def check_route(self, points, snap):
+        """経由地点の並びを送れるか。送れなければ理由を返す."""
+        client = self.nav_client if len(points) == 1 else self.through_client
+        if not client.server_is_ready():
+            return '自動操縦(Nav2)が起動していません'
         if snap.stopped:
-            self.state.set_nav(cs.NAV_FAILED, '停止中です。「再開」を押してから送ってください')
-            return
-        # ロボットの半径より障害物に近いゴールには、ぶつからずに着けない(着く前にうろうろする)
-        if snap.grid is not None:
-            gap = snap.grid.clearance(x, y, self.robot_radius)
+            return '停止中です。「再開」を押してから送ってください'
+        # ロボットの半径より障害物に近い点には、ぶつからずに行けない(着く前にうろうろする)
+        for i, (x, y, _yaw) in enumerate(points):
+            gap = snap.grid.clearance(x, y, self.robot_radius) if snap.grid is not None else 1e9
             if gap < self.robot_radius:
-                text = (f'ゴールが壁や障害物に近すぎます({gap * 100:.0f} cm)。ロボットの半径 '
+                name = 'ゴール' if i == len(points) - 1 else f'{i + 1} 番目の点'
+                return (f'{name}が壁や障害物に近すぎます({gap * 100:.0f} cm)。ロボットの半径 '
                         f'{self.robot_radius * 100:.0f} cm より離して置いてください(地図の点線の円)')
-                if snap.navigating:     # 走っている途中なら、今のゴールのまま知らせるだけ
-                    self.state.set_nav(snap.nav_phase, text, snap.nav_remaining)
-                else:
-                    self.state.set_nav(cs.NAV_FAILED, text, goal=None)
-                return
-        self.state.set_nav(cs.NAV_SENDING, cs.TURN_TEXT.get(turn, ''),
-                           goal=(float(x), float(y), float(yaw)))
-        stages = cs.goal_stages(turn, float(x), float(y), float(yaw), snap.map_pose[2])
+        return None
+
+    def send_route(self, points, turn=cs.TURN_WHILE_MOVING):
+        """
+        経由地点の並び [(x, y, 向き)](最後がゴール)を Nav2 に送る。走っている途中なら、新しい道に変わる.
+
+        turn … 向きをいつ変えるか(cs.TURN_WHILE_MOVING / cs.TURN_ON_ARRIVAL)。送れたら True
+        """
+        if not points:
+            return False
+        snap = self.state.snapshot(time.monotonic(), with_history=False)
+        problem = self.check_route(points, snap)
+        if problem:
+            if snap.navigating:     # 走っている途中なら、今の道のまま知らせるだけ
+                self.state.set_nav(snap.nav_phase, problem, snap.nav_remaining)
+            else:
+                self.state.set_nav(cs.NAV_FAILED, problem)
+            return False
+        self.state.set_nav(cs.NAV_SENDING, cs.TURN_TEXT.get(turn, ''), goal=list(points))
+        stages = cs.goal_stages(turn, points, snap.map_pose[2])
         self.send_stage(stages[0], stages[1:])
+        return True
 
     def send_stage(self, stage, rest):
-        """ゴールを 1 つ送る。rest は、着いたあとに続けて送るゴール."""
-        controller, (x, y, yaw) = stage
+        """
+        ゴールを送る(点が 1 つなら navigate_to_pose、2 つ以上なら navigate_through_poses).
+
+        rest は、着いたあとに続けて送るもの(着いてから回るとき)。
+        """
+        controller, poses = stage
         self.controller_pub.publish(String(data=controller))
-        goal = NavigateToPose.Goal()
-        goal.pose = self.pose_stamped(x, y, yaw)
+        if len(poses) == 1:
+            client, goal = self.nav_client, NavigateToPose.Goal()
+            goal.pose = self.pose_stamped(*poses[0])
+        else:
+            client, goal = self.through_client, NavigateThroughPoses.Goal()
+            goal.poses = [self.pose_stamped(*p) for p in poses]
         self.goal_serial += 1
         serial = self.goal_serial
         self.next_stages = list(rest)
-        future = self.nav_client.send_goal_async(
+        future = client.send_goal_async(
             goal, feedback_callback=lambda fb, n=serial: self.on_feedback(n, fb))
         future.add_done_callback(lambda f, n=serial: self.on_goal_response(n, f))
 
@@ -361,7 +382,9 @@ class ConsoleNode(Node):
 
     def on_feedback(self, serial, feedback):
         if serial == self.goal_serial:
-            self.state.on_nav_feedback(feedback.feedback.distance_remaining)
+            fb = feedback.feedback
+            self.state.on_nav_feedback(fb.distance_remaining,
+                                       getattr(fb, 'number_of_poses_remaining', None))
 
     def on_result(self, serial, future):
         if serial != self.goal_serial:
@@ -439,11 +462,13 @@ class ConsoleWindow(QMainWindow):
         self.graph_choice = QComboBox()
         self.graph_choice.setFocusPolicy(Qt.NoFocus)
         self.nav_key = None         # 自動操縦のタブを書き直すかどうかの判定用
+        self.waypoints = []         # 地図で並べた経由地点 [(x, y, 向き)](最後がゴール。Enter で走る)
 
         self.make_toolbar()
         self.make_body()
         self.trail.posePicked.connect(self.on_pose_picked)
         self.trail.robot_radius = getattr(node, 'robot_radius', None)
+        self.update_points()
 
         self.view_timer = QTimer(self)
         self.view_timer.timeout.connect(self.refresh)
@@ -508,13 +533,22 @@ class ConsoleWindow(QMainWindow):
         self.nav_detail.setWordWrap(True)
         column.addWidget(self.nav_detail)
 
-        goal = QGroupBox('ゴールに向かう')
+        goal = QGroupBox('経由地点とゴール(地図をクリックして並べ、Enter で走る)')
         goal_layout = QVBoxLayout(goal)
-        self.goal_button = QPushButton('地図をクリックしてゴールを置く(ドラッグで向き)')
-        self.goal_button.setFocusPolicy(Qt.NoFocus)
-        self.goal_button.clicked.connect(lambda: self.start_pick(
-            'goal', '地図をクリックしてゴールを置きます(ドラッグすると、着いたときの向き)'))
-        goal_layout.addWidget(self.goal_button)
+        self.points_label = QLabel('')
+        self.points_label.setWordWrap(True)
+        goal_layout.addWidget(self.points_label)
+        buttons = QHBoxLayout()
+        self.go_button = QPushButton('走る(Enter)')
+        self.undo_button = QPushButton('1 つ消す(BackSpace)')
+        self.clear_button = QPushButton('全部消す')
+        for button, slot in ((self.go_button, self.start_route),
+                             (self.undo_button, self.undo_point),
+                             (self.clear_button, self.clear_points)):
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(slot)
+            buttons.addWidget(button)
+        goal_layout.addLayout(buttons)
         # 向きをいつ変えるか
         turn_row = QHBoxLayout()
         turn_row.addWidget(QLabel('向きを変える:'))
@@ -551,8 +585,9 @@ class ConsoleWindow(QMainWindow):
         place_layout.addWidget(hint)
         column.addWidget(place)
 
-        note = QLabel('<b>このタブを開いている間は、地図をクリックするだけでゴールを置けます</b>'
-                      '(ドラッグで向き。走っている途中でクリックすると、ゴールが変わります)。'
+        note = QLabel('<b>このタブを開いている間は、地図をクリックするたびに経由地点を置けます</b>'
+                      '(ドラッグで向き。向きを使うのはゴールだけ)。Enter で、置いた順に通って最後の点まで'
+                      '走ります。走っている途中に並べて Enter を押すと、新しい道に変わります。'
                       '紫の線が自動操縦の探した道です。WASD などで手で操縦すると、自動操縦はやめます'
                       '(ゲームパッドで操縦している間は、そちらが優先されます)。'
                       '自動操縦は ./sim.sh nav か ./console.sh nav:=true で起動します。')
@@ -566,12 +601,46 @@ class ConsoleWindow(QMainWindow):
         self.statusBar().showMessage(hint, 5000)
 
     def on_pose_picked(self, mode, x, y, yaw):
-        if mode == 'goal':
-            turn = next(m for m, b in self.turn_buttons.items() if b.isChecked())
-            self.node.send_goal(x, y, yaw, turn)
+        if mode == 'goal':          # 経由地点を 1 つ足す(最後の点がゴール。Enter で走る)
+            self.waypoints.append((x, y, yaw))
+            self.update_points()
         elif mode == 'initial':
             self.node.publish_initial_pose(x, y, yaw)
         self.setFocus()
+
+    # ---- 経由地点 ----
+
+    def update_points(self):
+        self.trail.waypoints = list(self.waypoints)
+        self.trail.update()
+        n = len(self.waypoints)
+        if n == 0:
+            text = '地図をクリックすると、経由地点を置きます(ドラッグで向き)。最後に置いた点がゴールです'
+        else:
+            text = f'{n} か所(最後の {n} 番がゴール)。Enter で走ります'
+        self.points_label.setText(text)
+        self.go_button.setEnabled(n > 0)
+        self.undo_button.setEnabled(n > 0)
+        self.clear_button.setEnabled(n > 0)
+
+    def start_route(self):
+        """並べた経由地点を順番に通って、最後の点(ゴール)まで走る."""
+        if not self.waypoints:
+            return
+        turn = next(m for m, b in self.turn_buttons.items() if b.isChecked())
+        if self.node.send_route(list(self.waypoints), turn):
+            self.waypoints = []         # 送ったら、次の道を並べられるように空にする
+            self.update_points()
+        self.setFocus()
+
+    def undo_point(self):
+        if self.waypoints:
+            self.waypoints.pop()
+            self.update_points()
+
+    def clear_points(self):
+        self.waypoints = []
+        self.update_points()
 
     def update_amcl(self, snap):
         if snap.amcl_age is None or snap.amcl_age > 30.0:
@@ -591,7 +660,7 @@ class ConsoleWindow(QMainWindow):
         self.update_amcl(snap)
         key = (snap.nav_ready, snap.nav_phase, snap.nav_text,
                None if snap.nav_remaining is None else round(snap.nav_remaining, 1),
-               snap.mux_source)
+               snap.nav_points_left, snap.mux_source)
         if key == self.nav_key:         # 変わったときだけ書き直す
             return
         self.nav_key = key
@@ -601,7 +670,9 @@ class ConsoleWindow(QMainWindow):
         else:
             text, color = cs.NAV_TEXT[snap.nav_phase], colors.get(snap.nav_phase, th.TEXT)
             if snap.nav_phase == cs.NAV_RUNNING and snap.nav_remaining is not None:
-                text += f'(残り {snap.nav_remaining:.1f} m)'
+                left = snap.nav_points_left
+                text += f'(残り {snap.nav_remaining:.1f} m' + \
+                    (f'、あと {left} か所)' if left and len(snap.route) > 1 else ')')
         self.nav_label.setText(text)
         self.nav_label.setStyleSheet(f'font-weight: bold; color: {color};')
         sources = {'teleop': '手で操縦', 'nav': '自動操縦', '': 'どれも来ていない'}
@@ -612,7 +683,6 @@ class ConsoleWindow(QMainWindow):
             source = sources.get(snap.mux_source, snap.mux_source)
         lines.append(f'足回りに通している指令: {source}')
         self.nav_detail.setText('\n'.join(lines))
-        self.goal_button.setEnabled(snap.nav_ready)
 
     def make_graph_tab(self):
         tab = QWidget()
@@ -764,6 +834,10 @@ class ConsoleWindow(QMainWindow):
             return
         if event.key() in (Qt.Key_Escape, Qt.Key_Space):
             self.node.publish_stop(True)
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.waypoints:
+            self.start_route()          # 並べた経由地点を走る
+        elif event.key() == Qt.Key_Backspace and self.waypoints:
+            self.undo_point()
         elif event.key() in QT_KEYS:
             self.keys.add(QT_KEYS[event.key()])
 

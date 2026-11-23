@@ -160,7 +160,7 @@ def test_nav_goal_plan_and_finish():
     state.set_nav(cs.NAV_RUNNING)
     state.on_nav_feedback(1.5)
     snap = state.snapshot(0.0)
-    assert snap.navigating and snap.goal == (1.0, 2.0, 0.5)
+    assert snap.navigating and snap.goal == (1.0, 2.0, 0.5) and snap.route == [(1.0, 2.0, 0.5)]
     assert snap.plan == [(0.0, 0.0), (1.0, 2.0)] and snap.nav_remaining == 1.5
     state.set_nav(cs.NAV_SUCCEEDED)
     snap = state.snapshot(0.0)
@@ -171,13 +171,23 @@ def test_nav_goal_plan_and_finish():
 
 def test_goal_stages():
     # 走りながら回る: 1 回で、回る部品を使う
-    assert cs.goal_stages(cs.TURN_WHILE_MOVING, 1.0, 2.0, 1.5, 0.0) == \
-        [(cs.CONTROLLER_TURNING, (1.0, 2.0, 1.5))]
+    assert cs.goal_stages(cs.TURN_WHILE_MOVING, [(1.0, 2.0, 1.5)], 0.0) == \
+        [(cs.CONTROLLER_TURNING, [(1.0, 2.0, 1.5)])]
     # 着いてから回る: 今の向きのまま走って、その場で回る
-    assert cs.goal_stages(cs.TURN_ON_ARRIVAL, 1.0, 2.0, 1.5, 0.2) == \
-        [(cs.CONTROLLER_KEEP, (1.0, 2.0, 0.2)), (cs.CONTROLLER_KEEP, (1.0, 2.0, 1.5))]
+    assert cs.goal_stages(cs.TURN_ON_ARRIVAL, [(1.0, 2.0, 1.5)], 0.2) == \
+        [(cs.CONTROLLER_KEEP, [(1.0, 2.0, 0.2)]), (cs.CONTROLLER_KEEP, [(1.0, 2.0, 1.5)])]
     # 向きがほとんど同じなら、回らない(-π と π も同じ向き)
-    assert len(cs.goal_stages(cs.TURN_ON_ARRIVAL, 1.0, 2.0, math.pi, -math.pi + 0.01)) == 1
+    assert len(cs.goal_stages(cs.TURN_ON_ARRIVAL, [(1.0, 2.0, math.pi)], -math.pi + 0.01)) == 1
+
+
+def test_goal_stages_with_waypoints():
+    route = [(0.5, 0.0, 1.0), (1.0, 1.0, 2.0), (2.0, 1.0, 0.5)]     # 最後がゴール
+    # 走りながら回る: 全部の点を 1 回で送る
+    assert cs.goal_stages(cs.TURN_WHILE_MOVING, route, 0.0) == [(cs.CONTROLLER_TURNING, route)]
+    # 着いてから回る: 今の向きのまま全部の点を通り、ゴールでだけ回る
+    stages = cs.goal_stages(cs.TURN_ON_ARRIVAL, route, 0.0)
+    assert stages[0] == (cs.CONTROLLER_KEEP, [(0.5, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 1.0, 0.0)])
+    assert stages[1] == (cs.CONTROLLER_KEEP, [(2.0, 1.0, 0.5)])
 
 
 def test_amcl_fixes_are_recorded():
@@ -217,6 +227,19 @@ def test_param_replies():
     state.on_param_reply(3, 1, 0, 0.02, 2.0)
     params = state.snapshot(3.0).params
     assert params[2][10] == (8.0, 2, 1.0) and params[3][1] == (pytest.approx(0.02), 0, 1.0)
+
+
+def test_route_and_points_left():
+    state = cs.ConsoleState()
+    state.set_nav(cs.NAV_SENDING, goal=[(0.0, 1.0, 0.0), (2.0, 1.0, 1.5)])
+    state.set_nav(cs.NAV_RUNNING)
+    state.on_nav_feedback(3.0, 2)
+    snap = state.snapshot(0.0)
+    assert snap.goal == (2.0, 1.0, 1.5) and len(snap.route) == 2 and snap.nav_points_left == 2
+    state.set_nav(cs.NAV_SUCCEEDED)
+    assert state.snapshot(0.0).nav_points_left is None
+    state.set_nav(cs.NAV_FAILED, goal=None)
+    assert state.snapshot(0.0).route == [] and state.snapshot(0.0).goal is None
 
 
 def test_mux_source_times_out():

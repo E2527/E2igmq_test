@@ -47,21 +47,25 @@ CONTROLLER_TURNING = 'FollowPathTurning'    # ゴールの 2 m 手前から、�
 TURN_DONE_RAD = math.radians(3.0)           # 向きがこれ以下しか違わなければ、着いてから回らない
 
 
-def goal_stages(mode, x, y, yaw, current_yaw):
+def goal_stages(mode, points, current_yaw):
     """
-    ゴールを、Nav2 に順番に送るゴールに分ける.
+    経由地点の並び(最後がゴール)を、Nav2 に順番に送るものに分ける.
 
-    返すのは [(道に沿って走る部品の名前, (x, y, 向き))]。
-    着いてから回る: 1. 今の向きのままゴールの位置まで走る → 2. その場でゴールの向きに回る
-    走りながら回る: 1 回だけ(ゴールの手前から、走りながらゴールの向きに回る部品で)
+    points は [(x, y, 向き)]。返すのは [(道に沿って走る部品の名前, [(x, y, 向き)])]。
+    点が 1 つなら navigate_to_pose、2 つ以上なら navigate_through_poses で送る。
+    向きを使うのはゴール(最後の点)だけ(経由地点は通り過ぎるだけなので、向きは気にしない)。
+        着いてから回る: 1. 今の向きのまま全部の点を通ってゴールまで走る → 2. その場でゴールの向きに回る
+        走りながら回る: 1 回だけ(ゴールの手前から、走りながらゴールの向きに回る部品で)
     """
+    points = [tuple(float(v) for v in p) for p in points]
+    gx, gy, gyaw = points[-1]
     if mode == TURN_ON_ARRIVAL:
-        stages = [(CONTROLLER_KEEP, (x, y, current_yaw))]
-        diff = math.atan2(math.sin(yaw - current_yaw), math.cos(yaw - current_yaw))
+        stages = [(CONTROLLER_KEEP, [(x, y, current_yaw) for x, y, _ in points])]
+        diff = math.atan2(math.sin(gyaw - current_yaw), math.cos(gyaw - current_yaw))
         if abs(diff) > TURN_DONE_RAD:
-            stages.append((CONTROLLER_KEEP, (x, y, yaw)))
+            stages.append((CONTROLLER_KEEP, [(gx, gy, gyaw)]))
         return stages
-    return [(CONTROLLER_TURNING, (x, y, yaw))]
+    return [(CONTROLLER_TURNING, points)]
 
 
 @dataclass(frozen=True)
@@ -194,6 +198,8 @@ class Snapshot:
     nav_text: str = ''                  # 補足(行けなかった理由など)
     nav_remaining: float = None         # ゴールまでの残りの距離 [m](分からなければ None)
     goal: tuple = None                  # 自動操縦のゴール(地図の座標。なければ None)
+    route: list = field(default_factory=list)       # 自動操縦の経由地点 [(x, y, 向き)](最後がゴール)
+    nav_points_left: int = None         # まだ通っていない点の数(分からなければ None)
     plan: list = field(default_factory=list)        # 自動操縦が探した道 [(x, y)](地図の座標)
     amcl_age: float = None              # AMCL が最後に位置を合わせてから何秒(動いていなければ None)
     amcl_spread: tuple = None           # そのときの位置のばらつき (m, rad)(標準偏差)
@@ -249,6 +255,8 @@ class ConsoleState:
         self._nav_ready = False
         self._nav = (NAV_IDLE, '', None)        # (進み具合, 補足, 残りの距離)
         self._goal = None
+        self._route = []
+        self._points_left = None
         self._plan = []
         self._mux = None
         self._mux_time = None
@@ -360,19 +368,30 @@ class ConsoleState:
             self._nav_ready = bool(ready)
 
     def set_nav(self, phase, text='', remaining=None, goal=False):
-        """自動操縦の進み具合。goal を渡すと、ゴールも変える(None で消す)."""
+        """
+        自動操縦の進み具合.
+
+        goal を渡すと、ゴールも変える。(x, y, 向き) 1 つか、経由地点の並び(最後がゴール)。None で消す。
+        """
         with self._lock:
             self._nav = (phase, text, remaining)
+            if remaining is None:
+                self._points_left = None
             if goal is not False:
-                self._goal = goal
+                route = [] if goal is None else (
+                    [tuple(goal)] if not isinstance(goal[0], (tuple, list)) else
+                    [tuple(p) for p in goal])
+                self._route = route
+                self._goal = route[-1] if route else None
             if phase in (NAV_SUCCEEDED, NAV_CANCELED, NAV_FAILED):
                 self._plan = []                 # 終わったら、道の表示を消す
 
-    def on_nav_feedback(self, remaining):
-        """走っている途中の知らせ(ゴールまでの残りの距離 [m])."""
+    def on_nav_feedback(self, remaining, points_left=None):
+        """走っている途中の知らせ(ゴールまでの残りの距離 [m]、まだ通っていない点の数)."""
         with self._lock:
             if self._nav[0] == NAV_RUNNING:
                 self._nav = (NAV_RUNNING, self._nav[1], float(remaining))
+                self._points_left = None if points_left is None else int(points_left)
 
     def on_plan(self, points):
         """自動操縦が探した道(/plan。地図の座標の [(x, y)])."""
@@ -421,6 +440,8 @@ class ConsoleState:
             snap.nav_ready = self._nav_ready
             snap.nav_phase, snap.nav_text, snap.nav_remaining = self._nav
             snap.goal = self._goal
+            snap.route = list(self._route)
+            snap.nav_points_left = self._points_left
             snap.plan = list(self._plan)
             for (dev_id, param_id), (value, status, t) in self._params.items():
                 snap.params.setdefault(dev_id, {})[param_id] = (value, status, now - t)

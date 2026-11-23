@@ -259,6 +259,7 @@ class TrailView(_View):
         self.pick_mode = None       # None / POSE_MODES のどれか / 'point'(障害物を置く)
         self.click_mode = None      # ボタンを押さなくても、クリックだけで選ぶもの(自動操縦のタブではゴール)
         self.robot_radius = None    # 自動操縦のロボットの半径 [m](ロボットとゴールのまわりに点線の円)
+        self.waypoints = []         # 並べたが、まだ送っていない経由地点 [(x, y, 向き)](最後がゴール)
         self.pick_start = None      # ドラッグを始めた地図の座標
         self.pick_now = None
         self.view = None            # 最後に描いたときの (mid_x, mid_y, scale)。クリックの位置を直すのに使う
@@ -311,6 +312,16 @@ class TrailView(_View):
             self.posePicked.emit(mode, x0, y0, yaw)
         elif mode == 'point':
             self.pointPicked.emit(x0, y0)
+
+    @staticmethod
+    def draw_point(p, center, number, hex_color, alpha=255):
+        """番号つきの丸(経由地点)."""
+        p.setPen(th.pen(hex_color, 1.6, alpha))
+        p.setBrush(th.color(th.CARD, alpha))
+        p.drawEllipse(center, 9, 9)
+        p.setFont(th.font(8, bold=True))
+        p.setPen(th.color(hex_color, alpha))
+        p.drawText(QRectF(center.x() - 9, center.y() - 9, 18, 18), Qt.AlignCenter, str(number))
 
     def image_of(self, grid):
         """地図を絵にする(届くたびに 1 回だけ)。画像の上の行が地図の +y の端."""
@@ -432,6 +443,31 @@ class TrailView(_View):
             p.drawEllipse(start, 10, 10)
             th.draw_arrow(p, start, point(gx + 0.35 * math.cos(gyaw), gy + 0.35 * math.sin(gyaw)),
                           th.ACCENT_2, 2.4, head=10, alpha=alpha)
+        if len(snap.route) > 1:     # 走っている道の経由地点(番号つき)
+            for i, (wx, wy, _) in enumerate(snap.route[:-1]):
+                self.draw_point(p, point(wx, wy), i + 1, th.ACCENT_2, alpha=255 if snap.navigating
+                                else 110)
+
+        # 並べたが、まだ送っていない経由地点(オレンジの点線。Enter で走る)
+        if self.waypoints:
+            line = QPainterPath(point(x, y))
+            for wx, wy, _ in self.waypoints:
+                line.lineTo(point(wx, wy))
+            p.setBrush(Qt.NoBrush)
+            p.setPen(th.pen(th.WARN, 2.0, dashed=True))
+            p.drawPath(line)
+            for i, (wx, wy, wyaw) in enumerate(self.waypoints):
+                here_point = point(wx, wy)
+                if i == len(self.waypoints) - 1:        # ゴール: 向きの矢印とロボットの大きさ
+                    if self.robot_radius:
+                        p.setPen(th.pen(th.WARN, 1.2, 160, dashed=True))
+                        p.setBrush(Qt.NoBrush)
+                        p.drawEllipse(here_point, self.robot_radius * scale,
+                                      self.robot_radius * scale)
+                    th.draw_arrow(p, here_point, point(wx + 0.35 * math.cos(wyaw),
+                                                       wy + 0.35 * math.sin(wyaw)),
+                                  th.WARN, 2.4, head=10)
+                self.draw_point(p, here_point, i + 1, th.WARN)
 
         # シミュレーションの本当の位置(灰色の三角。オドメトリとずれると離れて見える)
         if snap.truth is not None:
