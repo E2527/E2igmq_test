@@ -116,6 +116,7 @@ e2igmq_test/
 | [docs/setup.md](docs/setup.md) | 開発環境のセットアップ(Windows + WSL / Linux)、Docker の使い方 |
 | [docs/development.md](docs/development.md) | 開発の進め方(ブランチ、PR、テスト、新しい機能の足し方) |
 | [docs/raspberry_pi.md](docs/raspberry_pi.md) | Raspberry Pi で動かす(イメージの作り方、送り方、Wi-Fi での操縦) |
+| [docs/remote.md](docs/remote.md) | スマホから PC につないで作業する(Tailscale + SSH。Windows + WSL) |
 | [docs/stm_bridge.md](docs/stm_bridge.md) | ROS 2 と STM32 の通信(CAN / USB シリアル、通信の決まり) |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 困ったとき(よくあるエラーと直し方) |
 | [ros2_ws/src/swerve_drive/README.md](ros2_ws/src/swerve_drive/README.md) | スワーブの足回り、ロボットコンソール、設定画面、シミュレーション |
@@ -139,3 +140,17 @@ e2igmq_test/
 | CAN での通信 | ⬜ まだ(先に [クロックの注意](firmware/motor_node_f303k8/README.md#can-を実機で使う前にクロックの精度) を読む) |
 | フィールドの地図(`field_map`) | ✅ 作れる。画面で編集・図をなぞれる(フィールドの形はまだ例) |
 | 自動操縦(Nav2) | 🔶 シミュレーションで試せる(`./sim.sh nav`)。実機はまだ |
+
+### これからやること(候補)
+
+やると決めたものから順に進めます。終わったら上の表に移します。
+
+- [ ] **スマホで状態を見る**:Pi で rosbridge を動かし、状態の一覧と停止ボタンだけの Web ページを作る(スマホのブラウザで `http://<PiのIP>:8080`)。停止ボタンは Wi-Fi が切れると届かないので、本物の非常停止スイッチの代わりにはしない。rosbridge は開発用のイメージに追加が必要
+- [ ] 自動の動きを手順にして保存する(地図でクリックして作る。Nav2 の `navigate_through_poses`)
+- [ ] 試合タイマーと、赤・青のスタート位置の切り替え(手順も左右反転)
+- [ ] 走りの記録と再生(rosbag)
+- [ ] 調整したゲインを STM32 のフラッシュに保存する
+- [ ] バッテリーの電圧をコンソールに出す
+- [ ] USB シリアルで STM32 を何枚もつなぐ(`stm_bridge`)
+- [ ] IMU を足す(robot_localization)
+- [ ] Nav2 を Pi で動かす

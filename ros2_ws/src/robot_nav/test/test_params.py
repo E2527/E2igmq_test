@@ -75,3 +75,18 @@ def test_holonomic_and_field_maps():
     assert 'assisted_teleop' not in behaviors['behavior_plugins']
     for name in behaviors['behavior_plugins']:
         assert 'plugin' in behaviors[name], name
+
+
+def test_near_goal_thresholds_are_small_for_waypoints():
+    """
+    「ゴールの近く」は、ゴールまでのまっすぐの距離で決まる(MPPI の critics).
+
+    経由地点を通る道が途中でゴールの近くを通っても、経由地点を無視してゴールに向かわないように小さくする。
+    """
+    controller = params(load(), 'controller_server')
+    for name in controller['controller_plugins']:
+        c = controller[name]
+        assert c['GoalCritic']['threshold_to_consider'] <= 0.8, name
+        assert c['PathFollowCritic']['threshold_to_consider'] == \
+            c['GoalCritic']['threshold_to_consider'], name
+        assert c['CostCritic']['near_goal_distance'] <= c['GoalCritic']['threshold_to_consider']
