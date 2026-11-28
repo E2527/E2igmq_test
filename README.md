@@ -116,6 +116,7 @@ e2igmq_test/
 | [docs/setup.md](docs/setup.md) | 開発環境のセットアップ(Windows + WSL / Linux)、Docker の使い方 |
 | [docs/development.md](docs/development.md) | 開発の進め方(ブランチ、PR、テスト、新しい機能の足し方) |
 | [docs/raspberry_pi.md](docs/raspberry_pi.md) | Raspberry Pi で動かす(イメージの作り方、送り方、Wi-Fi での操縦) |
+| [docs/remote.md](docs/remote.md) | スマホから PC につないで作業する(Tailscale + SSH。Windows + WSL) |
 | [docs/stm_bridge.md](docs/stm_bridge.md) | ROS 2 と STM32 の通信(CAN / USB シリアル、通信の決まり) |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 困ったとき(よくあるエラーと直し方) |
 | [ros2_ws/src/swerve_drive/README.md](ros2_ws/src/swerve_drive/README.md) | スワーブの足回り、ロボットコンソール、設定画面、シミュレーション |

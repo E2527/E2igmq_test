@@ -126,6 +126,10 @@ sim
 | MoveIt 2 | アームの動作計画 | `ros2 launch moveit_resources_panda_moveit_config demo.launch.py`(rviz2 の MotionPlanning で Plan & Execute) |
 | Nav2、slam_toolbox | 自動操縦、地図づくり | `ros2 launch nav2_bringup tb3_simulation_launch.py`(rviz2 で 2D Pose Estimate → Nav2 Goal) |
 
+## スマホから作業したいとき
+
+家の外からスマホで PC のコンテナに入る方法は [remote.md](remote.md)(Tailscale + SSH)にあります。
+
 ## 新しい PC に引っ越すとき
 
 全部 GitHub に入っているので、新しい PC で上の手順をやり直すだけです。古い PC からフォルダをコピーするより確実です。古い PC に push していない変更があれば、先に `git status` で確認して push しておきます。
